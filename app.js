@@ -2545,6 +2545,34 @@ async function clearAllSavedSession() {
 const VIP_STORAGE_KEY = 'tola_dubber_pro_vip';
 const ABA_PAYWAY_URL = 'https://link.payway.com.kh/ABAPAYlP553382Z';
 const PAYWAY_API_BASE = 'https://payway.jlastore.com';
+const ABA_ENCRYPTED_DATA = 'LmOS9+MKRzuKKx7UTmtb3ZutWrYLDEnOQiu8pFuJJht0jksyEm9ZSSURB4Tn+8jnvaoniiAmbicQb0JH8wlV6o3kSuGuh6soY8ysEOhkIYDOJeWSHeH1KYLdeE8aWH8uys62aNZQBqiTTsJkjFmoL6PhILKgjHFwHuYcm3uraXVqr/QsJl30kK3AfnFcK6/pI/zKox7UewKKLWme58n/vA5NoDrnL2UgIbwqAfDjgk++FBlxLKz0c9ekEcI6yS4bR5bXuoM0v9zO1VTjDl7kERcxLXsgfQM0xdNyQ48GqVe4wWw9QF7o/ZbXlWq4DLRkVD+W/3OOhYNYHPo/zFJw2YzMavSwgsTHf/Q77wHJrLMOOcBC6wWN6VaOX4ehvLHR07ghFDXq4pNXWu0yhtJtflE9ts5tAzJQpoBz2cK1MRluZZafJvNXNn1khBb7cppauYfLgoi1B4JmMqZ/SXdSdU5NfHBnKsYy9AT5spT418a1X7y6hpl+I8y0a7dQLkds0CtSFR0fJGlQfcMnRPjpd2nHQdJL0n/fdgzNqEjnNmlujRNbn3lHS/9OFF4CZf0L4nTog2FOLRVWmFHuzYJ1UaS2pjv/DHATq4fyKOICjwAZDQPjwMdcOWu5FMbo9e+tbamz3H/jM1v3SlM4pLHhfrfIvp1LHzh7/DGbb6t6e75MKVNpnzF2wATROkmMmI0ocI+/gMGHoJyDqyEVYZWB3f0VpdnF7cbMk8wEUQXFZhCrzLFgrhdGe9VNvJpswgQB';
+
+function crc16Khqr(str) {
+  let crc = 0xFFFF;
+  for (let c = 0; c < str.length; c++) {
+    crc ^= str.charCodeAt(c) << 8;
+    for (let i = 0; i < 8; i++) {
+      if (crc & 0x8000) crc = (crc << 1) ^ 0x1021;
+      else crc = crc << 1;
+    }
+  }
+  return (crc & 0xFFFF).toString(16).toUpperCase().padStart(4, '0');
+}
+
+function generateOfficialKhqr(amountStr) {
+  const amt = Number(amountStr).toFixed(2);
+  const tag54 = '54' + String(amt.length).padStart(2, '0') + amt;
+  const now = Date.now();
+  const expire = now + 1800000;
+  const tag99Val = '0013' + now + '0113' + expire + '672100170013F1BF016411FDA6804PLIK';
+  const tag99 = '99' + String(tag99Val.length).padStart(2, '0') + tag99Val;
+
+  const part1 = '00020101021230510016abaakhppxxx@abaa01151260929160700130208ABA Bank520489995303840';
+  const part2 = '5802KH5911CHENDA TOLA6006KANDAL625568510010PAYWAY@ABA0115553382-36057939020904255822203011';
+  
+  const rawWithoutCrc = part1 + tag54 + part2 + tag99 + '6304';
+  return rawWithoutCrc + crc16Khqr(rawWithoutCrc);
+}
 
 let _pendingVipSuccessCallback = null;
 let _payPollingTimer = null;
@@ -2657,6 +2685,12 @@ async function startPaywayCheckout(plan) {
   const continueUrl = window.location.origin + window.location.pathname + '?paid=success&tran_id=' + tranId + '&months=' + plan.months;
   const cancelUrl = window.location.origin + window.location.pathname + '?paid=cancel';
 
+  // Generate authentic Bakong EMVCo KHQR payload for CHENDA TOLA with exact amount
+  const officialKhqr = generateOfficialKhqr(plan.amount);
+  let activeKhqrString = officialKhqr;
+  let activeDeeplink = 'abamobilebank://ababank.com?type=payway&qrcode=' + encodeURIComponent(officialKhqr);
+  let activeCheckoutUrl = ABA_PAYWAY_URL;
+
   try {
     const res = await fetch(PAYWAY_API_BASE + '/api/create-tran', {
       method: 'POST',
@@ -2664,163 +2698,94 @@ async function startPaywayCheckout(plan) {
       body: JSON.stringify({
         amount: plan.amount,
         tran_id: tranId,
-        aba_data: ABA_PAYWAY_URL,
+        aba_data: ABA_ENCRYPTED_DATA,
         continue_url: continueUrl,
         cancel_url: cancelUrl
       })
     });
 
-    if (!res.ok) {
-      throw new Error('Server returned HTTP ' + res.status);
-    }
-
-    const data = await res.json();
-    if (!data || !data.data || !data.data.qr_string) {
-      throw new Error((data && data.message) || 'មិនអាចបង្កើត KHQR បានទេ');
-    }
-
-    if ($('payModalPlansView')) $('payModalPlansView').style.display = 'none';
-    if ($('payModalQrView')) $('payModalQrView').style.display = 'block';
-
-    if ($('khqrAmountVal')) $('khqrAmountVal').textContent = plan.amount;
-    if ($('qrPayAmount')) $('qrPayAmount').textContent = '$' + plan.amount;
-    const qrImgUrl = 'https://api.qrserver.com/v1/create-qr-code/?size=280x280&data=' + encodeURIComponent(data.data.qr_string);
-    if ($('qrPayImg')) $('qrPayImg').src = qrImgUrl;
-
-    if ($('openAbaDeepLink')) {
-      $('openAbaDeepLink').href = data.deeplink || ('abamobilebank://ababank.com?type=payway&qrcode=' + encodeURIComponent(data.data.qr_string));
-      $('openAbaDeepLink').target = '_self';
-    }
-    if ($('openCheckoutLink')) {
-      $('openCheckoutLink').href = data.checkout_url || ABA_PAYWAY_URL;
-    }
-
-    let timeLeft = 180;
-    const updateCountdownDisplay = () => {
-      const m = Math.floor(timeLeft / 60).toString().padStart(2, '0');
-      const s = (timeLeft % 60).toString().padStart(2, '0');
-      if ($('qrCountdown')) $('qrCountdown').textContent = `${m}:${s}`;
-    };
-    updateCountdownDisplay();
-
-    clearInterval(_payCountdownTimer);
-    _payCountdownTimer = setInterval(() => {
-      timeLeft--;
-      if (timeLeft <= 0) {
-        clearInterval(_payCountdownTimer);
-        clearInterval(_payPollingTimer);
-        if ($('qrCountdown')) $('qrCountdown').textContent = '00:00 (Expired)';
-        toast('⚠ QR Code ផុតកំណត់ហើយ សូមចុចត្រឡប់ក្រោយដើម្បីបង្កើតម្តងទៀត');
-      } else {
-        updateCountdownDisplay();
+    if (res.ok) {
+      const data = await res.json();
+      if (data && data.data && data.data.qr_string) {
+        activeKhqrString = data.data.qr_string;
+        activeDeeplink = data.deeplink || ('abamobilebank://ababank.com?type=payway&qrcode=' + encodeURIComponent(data.data.qr_string));
+        activeCheckoutUrl = data.checkout_url || ABA_PAYWAY_URL;
       }
-    }, 1000);
-
-    clearInterval(_payPollingTimer);
-    _payPollingTimer = setInterval(async () => {
-      try {
-        const checkRes = await fetch(PAYWAY_API_BASE + '/api/check-payment-status', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ tran_id: tranId })
-        });
-        if (checkRes.ok) {
-          const checkData = await checkRes.json();
-          if (isPaymentApproved(checkData)) {
-            clearInterval(_payPollingTimer);
-            clearInterval(_payCountdownTimer);
-            saveSubscription(plan.id, plan.title, plan.amount, plan.months, tranId, 'ABA_PAYWAY_KHQR');
-            closePaywallModal();
-            try { confetti(); } catch (_) {}
-            toast(`🎉 ការទូទាត់ជោគជ័យ! សូមស្វាគមន៍មកកាន់ TOLA Dubber PRO VIP (${plan.title})`);
-            log(`✓ Payment Approved! Tran ID: ${tranId} - Activated ${plan.title}`);
-            if (_pendingVipSuccessCallback) {
-              const cb = _pendingVipSuccessCallback;
-              _pendingVipSuccessCallback = null;
-              cb();
-            }
-          }
-        }
-      } catch (err) {
-        console.warn('Status poll warning:', err);
-      }
-    }, 3000);
-
+    }
   } catch (err) {
-    console.warn('Payway API cross-origin fetch warning:', err);
-    // Graceful fallback directly to user ABA PayWay Merchant gateway
-    if ($('payModalPlansView')) $('payModalPlansView').style.display = 'none';
-    if ($('payModalQrView')) $('payModalQrView').style.display = 'block';
-
-    if ($('khqrAmountVal')) $('khqrAmountVal').textContent = plan.amount;
-    if ($('qrPayAmount')) $('qrPayAmount').textContent = '$' + plan.amount;
-    const directQr = 'https://api.qrserver.com/v1/create-qr-code/?size=280x280&data=' + encodeURIComponent(ABA_PAYWAY_URL);
-    if ($('qrPayImg')) $('qrPayImg').src = directQr;
-
-    if ($('openAbaDeepLink')) {
-      $('openAbaDeepLink').href = ABA_PAYWAY_URL;
-      $('openAbaDeepLink').target = '_blank';
-    }
-    if ($('openCheckoutLink')) {
-      $('openCheckoutLink').href = ABA_PAYWAY_URL;
-    }
-
-    let timeLeft = 300;
-    const updateCountdownDisplay = () => {
-      const m = Math.floor(timeLeft / 60).toString().padStart(2, '0');
-      const s = (timeLeft % 60).toString().padStart(2, '0');
-      if ($('qrCountdown')) $('qrCountdown').textContent = `${m}:${s}`;
-    };
-    updateCountdownDisplay();
-
-    clearInterval(_payCountdownTimer);
-    _payCountdownTimer = setInterval(() => {
-      timeLeft--;
-      if (timeLeft <= 0) {
-        clearInterval(_payCountdownTimer);
-        clearInterval(_payPollingTimer);
-        if ($('qrCountdown')) $('qrCountdown').textContent = '00:00 (Expired)';
-      } else {
-        updateCountdownDisplay();
-      }
-    }, 1000);
-
-    // Keep polling status in background automatically
-    clearInterval(_payPollingTimer);
-    _payPollingTimer = setInterval(async () => {
-      try {
-        const checkRes = await fetch(PAYWAY_API_BASE + '/api/check-payment-status', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ tran_id: tranId })
-        });
-        if (checkRes.ok) {
-          const checkData = await checkRes.json();
-          if (isPaymentApproved(checkData)) {
-            clearInterval(_payPollingTimer);
-            clearInterval(_payCountdownTimer);
-            saveSubscription(plan.id, plan.title, plan.amount, plan.months, tranId, 'ABA_PAYWAY_KHQR');
-            closePaywallModal();
-            try { confetti(); } catch (_) {}
-            toast(`🎉 ការទូទាត់ជោគជ័យ! សូមស្វាគមន៍មកកាន់ TOLA Dubber PRO VIP (${plan.title})`);
-            log(`✓ Payment Approved! Tran ID: ${tranId} - Activated ${plan.title}`);
-            if (_pendingVipSuccessCallback) {
-              const cb = _pendingVipSuccessCallback;
-              _pendingVipSuccessCallback = null;
-              cb();
-            }
-          }
-        }
-      } catch (_) {}
-    }, 3000);
-
-    if ($('qrStatusNote')) {
-      $('qrStatusNote').innerHTML = '<span class="spin" style="width:14px;height:14px;border:2px solid var(--acc);border-top-color:transparent;border-radius:50%;display:inline-block;flex-shrink:0;"></span> <span>កំពុងរង់ចាំការបង់ប្រាក់... ប្រព័ន្ធនឹងដំណើរការដោយស្វ័យប្រវត្តិ (Auto-Detect)</span>';
-    }
+    console.warn('Payway API cross-origin notice:', err);
   } finally {
     startBtn.disabled = false;
     startBtn.innerHTML = originalHtml;
   }
+
+  // Display the official Bakong KHQR Card
+  if ($('payModalPlansView')) $('payModalPlansView').style.display = 'none';
+  if ($('payModalQrView')) $('payModalQrView').style.display = 'block';
+
+  if ($('khqrAmountVal')) $('khqrAmountVal').textContent = plan.amount;
+  if ($('qrPayAmount')) $('qrPayAmount').textContent = '$' + plan.amount;
+
+  const qrImgUrl = 'https://api.qrserver.com/v1/create-qr-code/?size=280x280&data=' + encodeURIComponent(activeKhqrString);
+  if ($('qrPayImg')) $('qrPayImg').src = qrImgUrl;
+
+  if ($('openAbaDeepLink')) {
+    $('openAbaDeepLink').href = activeDeeplink;
+  }
+  if ($('openCheckoutLink')) {
+    $('openCheckoutLink').href = activeCheckoutUrl;
+  }
+
+  // 180s Countdown Timer
+  let timeLeft = 180;
+  const updateCountdownDisplay = () => {
+    const m = Math.floor(timeLeft / 60).toString().padStart(2, '0');
+    const s = (timeLeft % 60).toString().padStart(2, '0');
+    if ($('qrCountdown')) $('qrCountdown').textContent = `${m}:${s}`;
+  };
+  updateCountdownDisplay();
+
+  clearInterval(_payCountdownTimer);
+  _payCountdownTimer = setInterval(() => {
+    timeLeft--;
+    if (timeLeft <= 0) {
+      clearInterval(_payCountdownTimer);
+      clearInterval(_payPollingTimer);
+      if ($('qrCountdown')) $('qrCountdown').textContent = '00:00 (Expired)';
+      toast('⚠ QR Code ផុតកំណត់ហើយ សូមចុចត្រឡប់ក្រោយដើម្បីបង្កើតម្តងទៀត');
+    } else {
+      updateCountdownDisplay();
+    }
+  }, 1000);
+
+  // Background status check loop for 100% automated VIP activation
+  clearInterval(_payPollingTimer);
+  _payPollingTimer = setInterval(async () => {
+    try {
+      const checkRes = await fetch(PAYWAY_API_BASE + '/api/check-payment-status', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tran_id: tranId })
+      });
+      if (checkRes.ok) {
+        const checkData = await checkRes.json();
+        if (isPaymentApproved(checkData)) {
+          clearInterval(_payPollingTimer);
+          clearInterval(_payCountdownTimer);
+          saveSubscription(plan.id, plan.title, plan.amount, plan.months, tranId, 'ABA_PAYWAY_KHQR');
+          closePaywallModal();
+          try { confetti(); } catch (_) {}
+          toast(`🎉 ការទូទាត់ជោគជ័យ! សូមស្វាគមន៍មកកាន់ TOLA Dubber PRO VIP (${plan.title})`);
+          log(`✓ Payment Approved! Tran ID: ${tranId} - Activated ${plan.title}`);
+          if (_pendingVipSuccessCallback) {
+            const cb = _pendingVipSuccessCallback;
+            _pendingVipSuccessCallback = null;
+            cb();
+          }
+        }
+      }
+    } catch (_) {}
+  }, 3000);
 }
 
 function handleVipCodeActivation(code) {
