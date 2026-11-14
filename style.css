@@ -159,7 +159,116 @@
   line-height: 1.4;
 }
 
-/* QR Screen */
+/* Official Bakong KHQR Card Design */
+.khqr-card-container {
+  width: 100%;
+  max-width: 290px;
+  margin: 0 auto;
+  background: #ffffff;
+  border-radius: 18px;
+  overflow: hidden;
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.45);
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  color: #0f172a;
+}
+.khqr-card-header {
+  background: #e11927;
+  height: 48px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  clip-path: polygon(0 0, 100% 0, 100% calc(100% - 13px), calc(100% - 13px) 100%, 0 100%);
+}
+.khqr-logo-img {
+  height: 18px;
+  display: block;
+}
+.khqr-card-info {
+  padding: 14px 20px 8px;
+  text-align: left;
+}
+.khqr-merchant-name {
+  font-size: 13.5px;
+  font-weight: 700;
+  color: #1e293b;
+  letter-spacing: 0.3px;
+  text-transform: uppercase;
+}
+.khqr-amount-row {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  margin-top: 3px;
+}
+.khqr-amount-val {
+  font-size: 26px;
+  font-weight: 800;
+  color: #0f172a;
+  line-height: 1.1;
+}
+.khqr-currency {
+  font-size: 13.5px;
+  font-weight: 600;
+  color: #64748b;
+}
+.khqr-divider {
+  position: relative;
+  height: 14px;
+  display: flex;
+  align-items: center;
+  margin: 4px 0 6px;
+}
+.khqr-divider .khqr-dash {
+  width: 100%;
+  border-top: 2px dashed #cbd5e1;
+  margin: 0 14px;
+}
+.khqr-divider .khqr-notch {
+  position: absolute;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--card, #121424);
+  top: 0;
+}
+.khqr-divider .khqr-notch.left {
+  left: -7px;
+}
+.khqr-divider .khqr-notch.right {
+  right: -7px;
+}
+.khqr-qr-wrap {
+  padding: 4px 18px 18px;
+  display: flex;
+  justify-content: center;
+}
+.khqr-qr-frame {
+  position: relative;
+  display: inline-block;
+  width: 220px;
+  height: 220px;
+}
+.khqr-qr-image {
+  width: 100%;
+  height: 100%;
+  display: block;
+  border-radius: 6px;
+}
+.khqr-center-emblem {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  box-shadow: 0 0 0 3.5px #ffffff;
+  pointer-events: none;
+  background: #ffffff;
+}
+
+/* Legacy fallback */
 .pay-qr-box {
   display: flex;
   flex-direction: column;

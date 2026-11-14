@@ -2682,6 +2682,7 @@ async function startPaywayCheckout(plan) {
     if ($('payModalPlansView')) $('payModalPlansView').style.display = 'none';
     if ($('payModalQrView')) $('payModalQrView').style.display = 'block';
 
+    if ($('khqrAmountVal')) $('khqrAmountVal').textContent = plan.amount;
     if ($('qrPayAmount')) $('qrPayAmount').textContent = '$' + plan.amount;
     const qrImgUrl = 'https://api.qrserver.com/v1/create-qr-code/?size=280x280&data=' + encodeURIComponent(data.data.qr_string);
     if ($('qrPayImg')) $('qrPayImg').src = qrImgUrl;
@@ -2751,6 +2752,7 @@ async function startPaywayCheckout(plan) {
     if ($('payModalPlansView')) $('payModalPlansView').style.display = 'none';
     if ($('payModalQrView')) $('payModalQrView').style.display = 'block';
 
+    if ($('khqrAmountVal')) $('khqrAmountVal').textContent = plan.amount;
     if ($('qrPayAmount')) $('qrPayAmount').textContent = '$' + plan.amount;
     const directQr = 'https://api.qrserver.com/v1/create-qr-code/?size=280x280&data=' + encodeURIComponent(ABA_PAYWAY_URL);
     if ($('qrPayImg')) $('qrPayImg').src = directQr;
@@ -2776,14 +2778,44 @@ async function startPaywayCheckout(plan) {
       timeLeft--;
       if (timeLeft <= 0) {
         clearInterval(_payCountdownTimer);
+        clearInterval(_payPollingTimer);
         if ($('qrCountdown')) $('qrCountdown').textContent = '00:00 (Expired)';
       } else {
         updateCountdownDisplay();
       }
     }, 1000);
 
+    // Keep polling status in background automatically
+    clearInterval(_payPollingTimer);
+    _payPollingTimer = setInterval(async () => {
+      try {
+        const checkRes = await fetch(PAYWAY_API_BASE + '/api/check-payment-status', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ tran_id: tranId })
+        });
+        if (checkRes.ok) {
+          const checkData = await checkRes.json();
+          if (isPaymentApproved(checkData)) {
+            clearInterval(_payPollingTimer);
+            clearInterval(_payCountdownTimer);
+            saveSubscription(plan.id, plan.title, plan.amount, plan.months, tranId, 'ABA_PAYWAY_KHQR');
+            closePaywallModal();
+            try { confetti(); } catch (_) {}
+            toast(`🎉 ការទូទាត់ជោគជ័យ! សូមស្វាគមន៍មកកាន់ TOLA Dubber PRO VIP (${plan.title})`);
+            log(`✓ Payment Approved! Tran ID: ${tranId} - Activated ${plan.title}`);
+            if (_pendingVipSuccessCallback) {
+              const cb = _pendingVipSuccessCallback;
+              _pendingVipSuccessCallback = null;
+              cb();
+            }
+          }
+        }
+      } catch (_) {}
+    }, 3000);
+
     if ($('qrStatusNote')) {
-      $('qrStatusNote').innerHTML = '<span style="color:#38bdf8;">📲 សូមស្កេន QR ឬចុចប៊ូតុងខាងលើដើម្បីបង់ប្រាក់ <b>$' + plan.amount + '</b>។ បន្ទាប់ពីបង់រួច សូមចុចប៊ូតុង "✓ ខ្ញុំបានបង់ប្រាក់រួចរាល់" ខាងលើ</span>';
+      $('qrStatusNote').innerHTML = '<span class="spin" style="width:14px;height:14px;border:2px solid var(--acc);border-top-color:transparent;border-radius:50%;display:inline-block;flex-shrink:0;"></span> <span>កំពុងរង់ចាំការបង់ប្រាក់... ប្រព័ន្ធនឹងដំណើរការដោយស្វ័យប្រវត្តិ (Auto-Detect)</span>';
     }
   } finally {
     startBtn.disabled = false;
@@ -2855,24 +2887,17 @@ if ($('startPayBtn')) {
   };
 }
 
-if ($('confirmPaidBtn')) {
-  $('confirmPaidBtn').onclick = () => {
-    const defaultRef = 'ABA_' + Math.floor(100000 + Math.random() * 900000);
-    const ref = prompt('សូមបញ្ចូលលេខប្រតិបត្តិការ (Transaction ID) ឬឈ្មោះគណនី ABA ដែលលោកអ្នកបានបង់ប្រាក់៖', defaultRef);
-    if (ref !== null && ref.trim()) {
-      saveSubscription(_selectedPlan.id, _selectedPlan.title, _selectedPlan.amount, _selectedPlan.months, ref.trim(), 'ABA_CONFIRMED');
-      closePaywallModal();
-      try { confetti(); } catch (_) {}
-      toast(`🎉 ការទូទាត់ត្រូវបានបញ្ជាក់ជោគជ័យ! សូមស្វាគមន៍មកកាន់ VIP (${_selectedPlan.title})`);
-      log(`✓ VIP Activated: ${_selectedPlan.title} - Ref: ${ref.trim()}`);
-      if (_pendingVipSuccessCallback) {
-        const cb = _pendingVipSuccessCallback;
-        _pendingVipSuccessCallback = null;
-        cb();
-      }
-    }
-  };
-}
+// Tab focus / visibility auto-check for returning mobile shoppers
+document.addEventListener('visibilitychange', () => {
+  if (!document.hidden && $('payModal') && $('payModal').classList.contains('open')) {
+    checkUrlPaymentCallback();
+  }
+});
+window.addEventListener('focus', () => {
+  if ($('payModal') && $('payModal').classList.contains('open')) {
+    checkUrlPaymentCallback();
+  }
+});
 
 if ($('cancelPayBtn')) {
   $('cancelPayBtn').onclick = () => {
