@@ -1482,10 +1482,74 @@ _saveListTimer = setTimeout(() => _0x140d({ segs: _0x13fc(segs) }), 250);
 const _0x1440 = () => {
 const box = $('list');
 box.innerHTML = '';
+
+// Update Character Roles Bar
+const spkBar = $('speakerBar');
+const spkList = $('speakerList');
+if (spkBar && spkList) {
+  const speakers = {};
+  segs.forEach(s => {
+    const spk = s.speaker || 'S0';
+    if (!speakers[spk]) speakers[spk] = { count: 0, m: 0, f: 0 };
+    speakers[spk].count++;
+    if (s.g === 'f') speakers[spk].f++; else speakers[spk].m++;
+  });
+
+  const spkKeys = Object.keys(speakers);
+  if (spkKeys.length > 0) {
+    spkBar.style.display = 'block';
+    spkList.innerHTML = '';
+    spkKeys.forEach(spk => {
+      const data = speakers[spk];
+      const isFemale = data.f >= data.m;
+      const pill = document.createElement('div');
+      pill.style.cssText = 'display:inline-flex;align-items:center;gap:6px;background:var(--card);padding:5px 12px;border-radius:99px;border:1px solid var(--line);font-size:12px;';
+      pill.innerHTML = '<b>' + spk + ' (' + data.count + ' ប្រយោគ):</b>';
+      
+      const sel = document.createElement('select');
+      sel.style.cssText = 'padding:2px 8px;border-radius:8px;border:1px solid var(--line);background:var(--card2);color:var(--ink);font-size:12px;cursor:pointer;';
+      sel.innerHTML = '<option value="m"' + (!isFemale ? ' selected' : '') + '>♂ Piseth (ពិសិដ្ឋ)</option><option value="f"' + (isFemale ? ' selected' : '') + '>♀ Sreymom (ស្រីមុំ)</option>';
+      
+      sel.onchange = () => {
+        const newG = sel.value;
+        segs.forEach(s => {
+          if ((s.speaker || 'S0') === spk) {
+            s.g = newG;
+            s.audio = null;
+          }
+        });
+        _0x1440();
+        toast('Updated ' + spk + ' to ' + (newG === 'f' ? '♀ Sreymom' : '♂ Piseth'));
+      };
+
+      pill.appendChild(sel);
+      spkList.appendChild(pill);
+    });
+
+    const swapBtn = $('swapGendersBtn');
+    if (swapBtn) {
+      swapBtn.onclick = () => {
+        segs.forEach(s => {
+          s.g = (s.g === 'f') ? 'm' : 'f';
+          s.audio = null;
+        });
+        _0x1440();
+        toast('🔄 Swapped all character voices (Piseth ↔ Sreymom)');
+      };
+    }
+  } else {
+    spkBar.style.display = 'none';
+  }
+}
+
 segs.forEach((s, i) => {
 if (s.g !== 'f') s.g = 'm';
 const row = document.createElement('div');
 row.className = 'srow' + (!s.audio && _dubState.status === 'done' ? ' dirty' : '');
+const spkTag = document.createElement('span');
+spkTag.className = 'tag';
+spkTag.style.cssText = 'font-size:10.5px;padding:2px 7px;font-weight:700;color:var(--acc);background:var(--soft);border-radius:6px;flex:none;';
+spkTag.textContent = s.speaker || 'S0';
 const ts = document.createElement('button');
 ts.type = 'button'; ts.className = 'tsbtn';
 ts.textContent = fmt(s.t).slice(3, 8);
@@ -1526,7 +1590,7 @@ _0x1440();
 await _0x13eb();
 await _0x140d({ segs: _0x13fc(segs) });
 };
-row.append(ts, gb, ed, del);
+row.append(spkTag, ts, gb, ed, del);
 box.append(row);
 requestAnimationFrame(resize);
 });
@@ -1567,6 +1631,44 @@ const step = (n, st) => {
   }
 };
 
+
+let _cachedPcm = null;
+
+function detectPitchF0(pcmSlice, sampleRate = 16000) {
+  if (!pcmSlice || pcmSlice.length < 512) return 0;
+  const minLag = Math.floor(sampleRate / 340);
+  const maxLag = Math.floor(sampleRate / 75);
+  const pitches = [];
+  const winSize = Math.min(pcmSlice.length - maxLag - 1, 1024);
+  if (winSize < maxLag * 2) return 0;
+  const step = Math.floor((pcmSlice.length - winSize - maxLag) / 4);
+  for (let w = 1; w <= 3; w++) {
+    const start = w * step;
+    let bestCorr = 0;
+    let bestLag = 0;
+    let energy = 0;
+    for (let i = 0; i < winSize; i++) {
+      energy += pcmSlice[start + i] * pcmSlice[start + i];
+    }
+    if (energy < 0.0001) continue;
+    for (let lag = minLag; lag <= maxLag; lag++) {
+      let corr = 0;
+      for (let i = 0; i < winSize; i++) {
+        corr += pcmSlice[start + i] * pcmSlice[start + i + lag];
+      }
+      if (corr > bestCorr) {
+        bestCorr = corr;
+        bestLag = lag;
+      }
+    }
+    if (bestLag > 0 && (bestCorr / energy) > 0.35) {
+      pitches.push(sampleRate / bestLag);
+    }
+  }
+  if (!pitches.length) return 0;
+  return pitches.reduce((a, b) => a + b, 0) / pitches.length;
+}
+
 async function listenNisay(resumed) {
   const nisayKey = getNisayKey();
   if (!nisayKey) throw new Error('Please enter your NISAY API Key in the Providers tab.');
@@ -1592,6 +1694,7 @@ async function listenNisay(resumed) {
         merged.set(p, offset);
         offset += p.length;
       }
+      _cachedPcm = merged;
       mediaFile = new Blob([wav(merged)], { type: 'audio/wav' });
       blog('✓ Audio extracted: ' + (mediaFile.size / 1024 / 1024).toFixed(2) + ' MB WAV (16kHz mono)', 'k');
     } catch (err) {
@@ -1646,6 +1749,16 @@ async function listenNisay(resumed) {
     const spk = seg.speaker || seg.speaker_id || ('S' + (idx % 2));
     const startSec = typeof seg.start === 'number' ? seg.start : parseFloat(seg.start) || 0;
     const endSec = typeof seg.end === 'number' ? seg.end : parseFloat(seg.end) || (startSec + 2.2);
+    
+    let pitch = 0;
+    if (_cachedPcm && _cachedPcm.length) {
+      const sIdx = Math.max(0, Math.floor(startSec * 16000));
+      const eIdx = Math.min(_cachedPcm.length, Math.floor(endSec * 16000));
+      if (eIdx > sIdx + 512) {
+        pitch = detectPitchF0(_cachedPcm.subarray(sIdx, eIdx));
+      }
+    }
+
     return {
       t: Math.max(0, startSec),
       s: Math.max(0, startSec),
@@ -1653,6 +1766,7 @@ async function listenNisay(resumed) {
       text: String(seg.text || '').trim(),
       km: '',
       speaker: spk,
+      pitch: Math.round(pitch),
       g: 'm'
     };
   }).filter(s => s.text);
@@ -1746,10 +1860,14 @@ async function translateNisay() {
   log('✓ NISAY Translation complete: ' + total + ' lines translated.');
 
   // --- Smart Character Gender Detection Engine ---
-  function scoreGender(orig, km) {
+  function scoreGender(orig, km, pitch = 0) {
     orig = String(orig || '');
     km = String(km || '');
     let f = 0, m = 0;
+    // Acoustic Vocal Pitch F0 Analysis (Natural Human Pitch Range)
+    if (pitch >= 168) f += 6;       // Clear Female Vocal Range (168Hz - 300Hz)
+    else if (pitch > 0 && pitch <= 152) m += 6; // Clear Male Vocal Range (75Hz - 152Hz)
+    else if (pitch > 152 && pitch < 168) { f += 1; m += 1; } // Borderline
     // Chinese female character indicators
     if (/她|姑娘|姐姐|妹妹|妈妈|母亲|夫人|皇后|公主|娘娘|贵妃|丫鬟|丫头|臣妾|本宫|贱妾|小女|妾身|媳妇|婆婆|姑姑|阿姨|婶婶|女侠|小姐/.test(orig)) f += 3;
     if (/夫君|相公|哥哥|表哥|师兄|公子|少爷|王爷|陛下|殿下|皇上/.test(orig) && !/本王|朕|微臣/.test(orig)) f += 2;
@@ -1767,7 +1885,7 @@ async function translateNisay() {
   segs.forEach(s => {
     const spk = s.speaker || 'S0';
     if (!speakerScores[spk]) speakerScores[spk] = { f: 0, m: 0 };
-    const sc = scoreGender(s.text, s.km);
+    const sc = scoreGender(s.text, s.km, s.pitch || 0);
     speakerScores[spk].f += sc.f;
     speakerScores[spk].m += sc.m;
   });
@@ -1777,7 +1895,7 @@ async function translateNisay() {
   segs.forEach(s => {
     const spk = s.speaker || 'S0';
     const cluster = speakerScores[spk] || { f: 0, m: 0 };
-    const sc = scoreGender(s.text, s.km);
+    const sc = scoreGender(s.text, s.km, s.pitch || 0);
     if (sc.f > sc.m + 1) {
       s.g = 'f';
     } else if (sc.m > sc.f + 1) {
