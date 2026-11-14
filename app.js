@@ -1864,29 +1864,28 @@ async function translateNisay() {
   if (!total) return;
 
   log('NISAY AI is analyzing characters & translating ' + total + ' lines...');
-  const batchSize = 25; // Balanced batch size for prompt context retention
+  const batchSize = 30; // Optimal batch size
+  const batches = [];
+  for (let p = 0; p < total; p += batchSize) {
+    batches.push(need.slice(p, p + batchSize));
+  }
+
+  const CONCURRENCY = 3; // 3 parallel translation streams (3x-5x faster)
   let done = 0;
 
-  for (let p = 0; p < total; p += batchSize) {
-    const ids = need.slice(p, p + batchSize);
+  const dramaDubContext = 'DRAMA DUBBING CHARACTER CONTEXT (' + category + '): This is a continuous dialogue conversation between characters in a drama. ' +
+    'MANDATORY GENDER DETECTION: For EVERY line, you MUST prefix the translation with [ប្រុស] if spoken by a male character, or [ស្រី] if spoken by a female character. ' +
+    'CRITICAL RULES: ' +
+    '1. Detect the ACTOR/SPEAKER WHO IS TALKING (not the person being spoken to!). ' +
+    '2. When an actor addresses a woman (e.g. 姑娘/小姐/夫人/娘子/妹妹/她/អ្នកនាង/កញ្ញា), the SPEAKER IS MALE -> prefix [ប្រុស]. ' +
+    '3. When an actress addresses a man (e.g. 少爷/王爷/公子/陛下/皇上/夫君/相公/哥/他/លោកម្ចាស់/ព្រះអង្គ), the SPEAKER IS FEMALE -> prefix [ស្រី]. ' +
+    '4. Self-pronouns: 本少爷/朕/本王/微臣/老子/末将/为夫 = [ប្រុស]; 臣妾/本宫/小女/妾身/奴婢/奴家/为妻 = [ស្រី]. ' +
+    '5. In two-person dialogues, characters take turns speaking back and forth. Output MUST start with [ប្រុស] or [ស្រី] on EVERY line. ' +
+    '6. STRICT LIP-SYNC: Keep translations punchy, concise and short so the voice matches the character mouth movement duration. ' +
+    'Example: [ប្រុស] ឈប់ភ្លាម! or [ស្រី] លោកម្ចាស់ ខ្ញុំ...';
+
+  async function processBatch(ids) {
     const batchTexts = ids.map(i => segs[i].text);
-
-    const pct = 45 + Math.round((done / total) * 30);
-    setProgress(pct, 'Translating & detecting character genders (' + done + '/' + total + ')...', 'NISAY Translating');
-    log('Translating with NISAY gpt-5.6-luna [' + category + ']… ' + done + '/' + total);
-
-    const dramaDubContext = 'DRAMA DUBBING CHARACTER CONTEXT (' + category + '): This is a continuous dialogue conversation between characters in a drama. ' +
-      'MANDATORY GENDER DETECTION: For EVERY line, you MUST prefix the translation with [ប្រុស] if spoken by a male character, or [ស្រី] if spoken by a female character. ' +
-      'CRITICAL RULES: ' +
-      '1. Detect the ACTOR/SPEAKER WHO IS TALKING (not the person being spoken to!). ' +
-      '2. When an actor addresses a woman (e.g. 姑娘/小姐/夫人/娘子/妹妹/她/អ្នកនាង/កញ្ញា), the SPEAKER IS MALE -> prefix [ប្រុស]. ' +
-      '3. When an actress addresses a man (e.g. 少爷/王爷/公子/陛下/皇上/夫君/相公/哥/他/លោកម្ចាស់/ព្រះអង្គ), the SPEAKER IS FEMALE -> prefix [ស្រី]. ' +
-      '4. Self-pronouns: 本少爷/朕/本王/微臣/老子/末将/为夫 = [ប្រុស]; 臣妾/本宫/小女/妾身/奴婢/奴家/为妻 = [ស្រី]. ' +
-      '5. In two-person dialogues, characters take turns speaking back and forth. Output MUST start with [ប្រុស] or [ស្រី] on EVERY line. ' +
-      '6. STRICT LIP-SYNC: Keep translations punchy, concise and short so the voice matches the character mouth movement duration. ' +
-      'Example: [ប្រុស] ឈប់ភ្លាម! or [ស្រី] លោកម្ចាស់ ខ្ញុំ...';
-
-    let success = false;
     for (let attempt = 1; attempt <= 3; attempt++) {
       try {
         const resp = await fetch('https://api.nisay.store/v1/translate', {
@@ -1978,17 +1977,29 @@ async function translateNisay() {
             segs[segIdx].km = rawText;
           }
         });
-        success = true;
-        break;
+
+        done += ids.length;
+        const pct = 45 + Math.round((done / total) * 30);
+        setProgress(pct, 'Translating & detecting character genders (' + done + '/' + total + ')...', 'NISAY Translating');
+        log('Translating with NISAY gpt-5.6-luna [' + category + ']… ' + done + '/' + total);
+        await _0x140d({ status: 'running', step: 2, segs: _0x13fc(segs) });
+        return;
       } catch (err) {
         if (attempt === 3) throw err;
         await sleep(1000 * attempt);
       }
     }
-
-    done += ids.length;
-    await _0x140d({ status: 'running', step: 2, segs: _0x13fc(segs) });
   }
+
+  // Run in parallel with concurrency pool (3 streams simultaneously)
+  const queue = batches.slice();
+  const workers = Array.from({ length: Math.min(CONCURRENCY, queue.length) }, async () => {
+    while (queue.length) {
+      const b = queue.shift();
+      await processBatch(b);
+    }
+  });
+  await Promise.all(workers);
 
   // Assign distinct speaker labels for UI
   segs.forEach((s) => {
