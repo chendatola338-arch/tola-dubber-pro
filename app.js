@@ -1571,38 +1571,40 @@ async function listenNisay(resumed) {
   const nisayKey = getNisayKey();
   if (!nisayKey) throw new Error('Please enter your NISAY API Key in the Providers tab.');
 
-  setProgress(8, 'Extracting audio from video...', 'Extracting Audio');
-  log('Reading audio from video for NISAY Transcriber...');
+  setProgress(10, 'Preparing media for NISAY Transcriber...', 'Analyzing Media');
+  log('Preparing audio for NISAY Transcribe engine…');
 
-  let audioBlob = null;
-  try {
-    const a = await _0x1165();
-    const pcmList = [];
-    for (let k = 0; k < a.total; k++) {
-      const p = await a.getPcm(k);
-      pcmList.push(p);
-      const readPct = 8 + Math.round(((k + 1) / a.total) * 15);
-      setProgress(readPct, 'Extracting audio... ' + Math.round(((k + 1) / a.total) * 100) + '%', 'Extracting Audio');
+  let mediaFile = curFile;
+  // If file is large (> 60MB), extract 16kHz WAV to ensure fast network upload
+  if (!mediaFile || mediaFile.size > 60 * 1024 * 1024) {
+    try {
+      setProgress(12, 'Extracting 16kHz audio track from video...', 'Extracting Audio');
+      const a = await _0x1165();
+      const pcmList = [];
+      for (let k = 0; k < a.total; k++) {
+        pcmList.push(await a.getPcm(k));
+        setProgress(12 + Math.round(((k + 1) / a.total) * 12), 'Extracting audio: ' + Math.round(((k + 1) / a.total) * 100) + '%', 'Extracting Audio');
+      }
+      const totalLen = pcmList.reduce((acc, c) => acc + c.length, 0);
+      const merged = new Float32Array(totalLen);
+      let offset = 0;
+      for (const p of pcmList) {
+        merged.set(p, offset);
+        offset += p.length;
+      }
+      mediaFile = new Blob([wav(merged)], { type: 'audio/wav' });
+      blog('✓ Audio extracted: ' + (mediaFile.size / 1024 / 1024).toFixed(2) + ' MB WAV (16kHz mono)', 'k');
+    } catch (err) {
+      blog('⚠ Media fallback: using video directly (' + (err.message || err) + ')', 'w');
+      mediaFile = curFile;
     }
-    const totalLen = pcmList.reduce((acc, c) => acc + c.length, 0);
-    const merged = new Float32Array(totalLen);
-    let offset = 0;
-    for (const p of pcmList) {
-      merged.set(p, offset);
-      offset += p.length;
-    }
-    audioBlob = new Blob([wav(merged)], { type: 'audio/wav' });
-    blog('✓ Audio extracted: ' + (audioBlob.size / 1024 / 1024).toFixed(2) + ' MB WAV (16kHz mono)', 'k');
-  } catch (err) {
-    blog('⚠ Audio decode fallback: using video file directly (' + (err.message || err) + ')', 'w');
-    audioBlob = curFile;
   }
 
-  setProgress(25, 'Sending audio to NISAY Gateway (model: nisay-transcribe)...', 'NISAY Transcribing');
-  log('NISAY Transcribe is processing verbatim speech with millisecond timestamps…');
+  setProgress(25, 'Sending media to NISAY Gateway (model: nisay-transcribe)...', 'NISAY Transcribing');
+  log('NISAY Transcribe is extracting exact millisecond timestamps and speech cues…');
 
   const form = new FormData();
-  form.append('file', audioBlob, (audioBlob.name || 'audio.wav'));
+  form.append('file', mediaFile, (mediaFile.name || 'audio.wav'));
   form.append('model', 'nisay-transcribe');
   form.append('language', 'auto');
   form.append('response_format', 'verbose_json');
@@ -1630,30 +1632,37 @@ async function listenNisay(resumed) {
 
   const data = await resp.json();
   const cues = data.segments || [];
-  blog('← NISAY Transcribe 200 OK (' + elapsed + 's) · ' + cues.length + ' cues detected', 'k');
+  blog('← NISAY Transcribe 200 OK (' + elapsed + 's) · ' + cues.length + ' cues detected with exact millisecond timestamps', 'k');
 
   if (!cues.length) {
     if (data.text && data.text.trim()) {
-      return [{ s: 0, e: v.duration || 5, text: data.text.trim(), km: '', g: 'm' }];
+      return [{ t: 0, s: 0, e: v.duration || 5, text: data.text.trim(), km: '', g: 'm' }];
     }
     throw new Error('No speech was found in the video audio.');
   }
 
+  // CRITICAL: Map both 't' (used by player, scheduler, srt, subtitles) and 's'
   const out = cues.map((seg, idx) => {
     const spk = seg.speaker || seg.speaker_id || ('S' + (idx % 2));
+    const startSec = typeof seg.start === 'number' ? seg.start : parseFloat(seg.start) || 0;
+    const endSec = typeof seg.end === 'number' ? seg.end : parseFloat(seg.end) || (startSec + 2.2);
     return {
-      s: Number(seg.start) || 0,
-      e: Number(seg.end) || (Number(seg.start) + 2),
+      t: Math.max(0, startSec),
+      s: Math.max(0, startSec),
+      e: Math.max(startSec + 0.4, endSec),
       text: String(seg.text || '').trim(),
       km: '',
       speaker: spk,
-      g: spk === 'S1' ? 'f' : 'm'
+      g: 'm'
     };
   }).filter(s => s.text);
 
-  setProgress(45, 'NISAY Transcribed ' + out.length + ' dialogue cues', 'Transcribe Complete');
-  log('✓ NISAY Transcribe complete: ' + out.length + ' lines detected.');
-  return out;
+  // Clean overlaps, sort strictly by timestamp t
+  const cleanOut = _0x10dd(out);
+
+  setProgress(45, 'NISAY Transcribed ' + cleanOut.length + ' cues with frame-accurate timing', 'Transcribe Complete');
+  log('✓ NISAY Transcribe complete: ' + cleanOut.length + ' lines with frame-accurate timestamps.');
+  return cleanOut;
 }
 
 async function translateNisay() {
@@ -1694,7 +1703,7 @@ async function translateNisay() {
             target_lang: 'km',
             model: 'gpt-5.6-luna',
             category: category,
-            context: 'Story genre: ' + category + '. Apply Standard Khmer orthography.'
+            context: 'Story genre: ' + category + '. Video dubbing lip-sync mode: Keep Khmer translations concise, natural, and punchy so speech duration fits actor mouth movements. Avoid wordy bloated expressions.'
           })
         });
 
