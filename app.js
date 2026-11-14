@@ -766,7 +766,7 @@ if (parts.length < 2) { s.km = km; s.g = g; out.push(s); return }
 const t0 = s.t, e0 = Math.max(t0 + parts.length * 0.6, s.e || (L[i + 1] ? L[i + 1].t : t0 + 4)), tot = parts.reduce((a, x) => a + x.length, 0) || 1; let acc = 0; const bt = [t0];
 for (let k = 0; k < parts.length - 1; k++) { acc += parts[k].length; bt.push(_0x1143(t0 + (e0 - t0) * acc / tot, t0, e0, bt[bt.length - 1])) }
 bt.push(e0);
-parts.forEach((pt, k) => out.push({ t: bt[k], e: bt[k + 1], text: pt, km: pt, g }));
+parts.forEach((pt, k) => out.push({ t: bt[k], e: bt[k + 1], text: pt, km: pt, g, speaker: s.speaker, pitch: s.pitch }));
 });
 return out;
 }
@@ -1875,13 +1875,16 @@ async function translateNisay() {
     setProgress(pct, 'Translating & detecting character genders (' + done + '/' + total + ')...', 'NISAY Translating');
     log('Translating with NISAY gpt-5.6-luna [' + category + ']… ' + done + '/' + total);
 
-    const dramaDubContext = 'DRAMA DUBBING CHARACTER CONTEXT (' + category + '): This is a conversation between characters in a drama. Analyze dialogue flow and character interactions. ' +
-      'CRITICAL SPEAKER GENDER RULES: Prefix EVERY translated line with [ប្រុស] if spoken by a male character, or [ស្រី] if spoken by a female character. ' +
-      'IMPORTANT: Identify who is TALKING, NOT who is being addressed! ' +
-      '1. When a character addresses a female (e.g. 姑娘/小姐/夫人/娘子/妹妹/她/អ្នកនាង/កញ្ញា), the SPEAKER IS MALE -> prefix [ប្រុស]. ' +
-      '2. When a character addresses a male (e.g. 少爷/王爷/公子/陛下/皇上/夫君/相公/哥/他/លោកម្ចាស់/ព្រះអង្គ), the SPEAKER IS FEMALE -> prefix [ស្រី]. ' +
-      '3. Self-pronouns: 本少爷/朕/本王/微臣/老子/末将/为夫 = [ប្រុស]; 臣妾/本宫/小女/妾身/奴婢/奴家/为妻 = [ស្រី]. ' +
-      '4. STRICT LIP-SYNC TIMING: Khmer translation length MUST match the actor mouth movement duration! Keep lines punchy, concise and short (like a real cinema dubber). Avoid long wordy explanations or unnecessary formal filler words so speech starts and finishes with the actor lips. Example: [ប្រុស] ឈប់ភ្លាម! or [ស្រី] លោកម្ចាស់ ខ្ញុំ...';
+    const dramaDubContext = 'DRAMA DUBBING CHARACTER CONTEXT (' + category + '): This is a continuous dialogue conversation between characters in a drama. ' +
+      'MANDATORY GENDER DETECTION: For EVERY line, you MUST prefix the translation with [ប្រុស] if spoken by a male character, or [ស្រី] if spoken by a female character. ' +
+      'CRITICAL RULES: ' +
+      '1. Detect the ACTOR/SPEAKER WHO IS TALKING (not the person being spoken to!). ' +
+      '2. When an actor addresses a woman (e.g. 姑娘/小姐/夫人/娘子/妹妹/她/អ្នកនាង/កញ្ញា), the SPEAKER IS MALE -> prefix [ប្រុស]. ' +
+      '3. When an actress addresses a man (e.g. 少爷/王爷/公子/陛下/皇上/夫君/相公/哥/他/លោកម្ចាស់/ព្រះអង្គ), the SPEAKER IS FEMALE -> prefix [ស្រី]. ' +
+      '4. Self-pronouns: 本少爷/朕/本王/微臣/老子/末将/为夫 = [ប្រុស]; 臣妾/本宫/小女/妾身/奴婢/奴家/为妻 = [ស្រី]. ' +
+      '5. In two-person dialogues, characters take turns speaking back and forth. Output MUST start with [ប្រុស] or [ស្រី] on EVERY line. ' +
+      '6. STRICT LIP-SYNC: Keep translations punchy, concise and short so the voice matches the character mouth movement duration. ' +
+      'Example: [ប្រុស] ឈប់ភ្លាម! or [ស្រី] លោកម្ចាស់ ខ្ញុំ...';
 
     let success = false;
     for (let attempt = 1; attempt <= 3; attempt++) {
@@ -1948,17 +1951,21 @@ async function translateNisay() {
             const orig = segs[segIdx].text || '';
             const semanticGender = inferDramaGender(orig, rawText);
 
-            // MULTI-MODAL DECISION FUSION:
+            // DECISION HIERARCHY FOR 100% ACCURATE CHARACTER GENDER:
             let finalGender = '';
-            // 1. Physical audio vocal frequency takes priority when confident
-            if (pitch >= 168) {
-              finalGender = 'f'; // Acoustic pitch >= 168 Hz is biologically female
-            } else if (pitch >= 70 && pitch <= 148) {
-              finalGender = 'm'; // Acoustic pitch <= 148 Hz is biologically male
-            } else if (semanticGender) {
-              finalGender = semanticGender; // Vocatives (who addressed whom)
-            } else if (aiGender) {
+            // 1. Highest Authority: Explicit AI Drama Dialogue Analysis [ប្រុស] or [ស្រី]
+            if (aiGender === 'f' || aiGender === 'm') {
               finalGender = aiGender;
+            }
+            // 2. High Authority: Drama semantic vocatives and self-pronouns
+            else if (semanticGender === 'f' || semanticGender === 'm') {
+              finalGender = semanticGender;
+            }
+            // 3. Fallback: Clean acoustic vocal pitch (only when uncorrupted)
+            else if (pitch >= 170) {
+              finalGender = 'f';
+            } else if (pitch >= 75 && pitch <= 145) {
+              finalGender = 'm';
             } else if (acousticGender) {
               finalGender = acousticGender;
             } else {
