@@ -813,11 +813,11 @@ const q = segs.map((x, i) => i).filter(i => !segs[i].audio && !segs[i].skip && _
 if (q.length) {
 log('Waking up the voice server… (the first request can take up to a minute)');
 let up = false;
-for (let t = 0; t < 16 && !up; t++) {
-const ac = new AbortController(), to = setTimeout(() => ac.abort(), 4500);
+for (let t = 0; t < 4 && !up; t++) {
+const ac = new AbortController(), to = setTimeout(() => ac.abort(), 2000);
 try { up = (await fetch(base + '/ping', { signal: ac.signal })).ok } catch (_) { }
 finally { clearTimeout(to) }
-if (!up) await sleep(2000);
+if (!up) await sleep(800);
 }
 if (!up) throw new Error('Edge voice server is not reachable (check your internet and try again).');
 }
@@ -834,7 +834,7 @@ await sleep(250);
 }
 }
 };
-const CONC = Math.min(6, Math.max(1, q.length));
+const CONC = Math.min(12, Math.max(1, q.length));
 await Promise.all(Array.from({ length: CONC }, async () => {
 while (q.length) {
 const i = q.shift();
@@ -1790,16 +1790,16 @@ async function translateNisay() {
   const total = need.length;
   if (!total) return;
 
-  log('NISAY Translate (gpt-5.6-luna) starting for ' + total + ' lines...');
-  const batchSize = 15;
+  log('NISAY AI is analyzing characters & translating ' + total + ' lines...');
+  const batchSize = 30; // Faster batches
   let done = 0;
 
   for (let p = 0; p < total; p += batchSize) {
     const ids = need.slice(p, p + batchSize);
-    const batchTexts = ids.map(i => segs[i].text);
+    const batchTexts = ids.map((i, k) => (k + 1) + '. ' + segs[i].text);
 
     const pct = 45 + Math.round((done / total) * 30);
-    setProgress(pct, 'Translating with NISAY gpt-5.6-luna (' + done + '/' + total + ')...', 'NISAY Translating');
+    setProgress(pct, 'Translating & detecting characters (' + done + '/' + total + ')...', 'NISAY Translating');
     log('Translating with NISAY gpt-5.6-luna [' + category + ']… ' + done + '/' + total);
 
     let success = false;
@@ -1817,13 +1817,13 @@ async function translateNisay() {
             target_lang: 'km',
             model: 'gpt-5.6-luna',
             category: category,
-            context: 'Story genre: ' + category + '. Video dubbing lip-sync mode: Keep Khmer translations concise, natural, and punchy so speech duration fits actor mouth movements. Avoid wordy bloated expressions.'
+            context: 'Story genre: ' + category + '. Video dubbing mode: For every single line, analyze the story characters and scene. Prefix each line with [ស្រី] if spoken by a female character (Sreymom), or [ប្រុស] if spoken by a male character (Piseth). Example: [ស្រី] ខ្ញុំ... or [ប្រុស] ខ្ញុំ... Keep translations concise and punchy for lip-sync.'
           })
         });
 
         if (resp.status === 429 || resp.status >= 500) {
           blog('⚠ NISAY server busy (' + resp.status + '), retry ' + attempt + '/3...', 'w');
-          await sleep(2000 * attempt);
+          await sleep(1000 * attempt);
           continue;
         }
         if (resp.status === 403) throw new Error('NISAY 403 Forbidden: API key expired or invalid.');
@@ -1837,80 +1837,52 @@ async function translateNisay() {
         trList.forEach((item, idx) => {
           const segIdx = ids[idx];
           if (segIdx !== undefined && segs[segIdx]) {
-            segs[segIdx].km = String(item.text || '').trim();
+            let rawText = String(item.text || '').trim();
+            
+            // 1. Detect character gender directly from gpt-5.6-luna prefix
+            if (/^\[(ស្រី|នារី|ស្រីមុំ|F|Female)\]/i.test(rawText)) {
+              segs[segIdx].g = 'f';
+              rawText = rawText.replace(/^\[(ស្រី|នារី|ស្រីមុំ|F|Female)\]\s*/i, '');
+            } else if (/^\[(ប្រុស|បុរស|ពិសិដ្ឋ|M|Male)\]/i.test(rawText)) {
+              segs[segIdx].g = 'm';
+              rawText = rawText.replace(/^\[(ប្រុស|បុរស|ពិសិដ្ឋ|M|Male)\]\s*/i, '');
+            } else {
+              // 2. Keyword check if tag missing
+              const orig = segs[segIdx].text || '';
+              if (/[她娘妈妹姐姑妇妾妃后丫婆女]|姑娘|姐姐|妹妹|妈妈|母亲|夫人|皇后|公主|娘娘|贵妃|丫鬟|丫头|臣妾|本宫|贱妾|小女|妾身|媳妇|婆婆|姑姑|阿姨|婶婶|女侠|小姐|នាង|អ្នកនាង|ម៉ាក់|ម្ដាយ|បងស្រី|ប្អូនស្រី|អ្នកស្រី|លោកស្រី|ព្រះនាង|មហេសី|ម៉ែ|យាយ|កញ្ញា|នារី|ស្រី/.test(orig + ' ' + rawText)) {
+                segs[segIdx].g = 'f';
+              } else if (/[他爹爸哥弟]|皇上|陛下|王爷|老子|本王|朕|微臣|贫僧|兄弟|儿子|老公|岳父|老爹|丈夫|将军|师兄|大侠|大人|官人|小的|លោក|គាត់|បងប្រុស|ប្អូនប្រុស|ប៉ា|ឪពុក|ព្រះអង្គ|ស្ដេច|លោកម្ចាស់|តា|ប្ដី|ប្រុស|មេទ័ព|ក្សត្រ|ចៅហ្វាយ/.test(orig + ' ' + rawText)) {
+                segs[segIdx].g = 'm';
+              } else {
+                segs[segIdx].g = 'm';
+              }
+            }
+
+            // Remove any leading numbers like "1. " or "១. "
+            rawText = rawText.replace(/^(\d+|[០-៩]+)\s*[\.\:\-]\s*/, '').trim();
+            segs[segIdx].km = rawText;
           }
         });
         success = true;
         break;
       } catch (err) {
         if (attempt === 3) throw err;
-        await sleep(2000 * attempt);
+        await sleep(1000 * attempt);
       }
-    }
-
-    if (!success) {
-      log('⚠ Translation batch hiccup at line ' + done);
     }
 
     done += ids.length;
     await _0x140d({ status: 'running', step: 2, segs: _0x13fc(segs) });
   }
 
-  setProgress(75, 'All ' + total + ' lines translated to Khmer', 'Translate Complete');
-  log('✓ NISAY Translation complete: ' + total + ' lines translated.');
+  // Count detected roles
+  let fCount = segs.filter(s => s.g === 'f').length;
+  let mCount = segs.filter(s => s.g === 'm').length;
 
-  // --- Smart Character Gender Detection Engine ---
-  function scoreGender(orig, km, pitch = 0) {
-    orig = String(orig || '');
-    km = String(km || '');
-    let f = 0, m = 0;
-    // Acoustic Vocal Pitch F0 Analysis (Natural Human Pitch Range)
-    if (pitch >= 168) f += 6;       // Clear Female Vocal Range (168Hz - 300Hz)
-    else if (pitch > 0 && pitch <= 152) m += 6; // Clear Male Vocal Range (75Hz - 152Hz)
-    else if (pitch > 152 && pitch < 168) { f += 1; m += 1; } // Borderline
-    // Chinese female character indicators
-    if (/她|姑娘|姐姐|妹妹|妈妈|母亲|夫人|皇后|公主|娘娘|贵妃|丫鬟|丫头|臣妾|本宫|贱妾|小女|妾身|媳妇|婆婆|姑姑|阿姨|婶婶|女侠|小姐/.test(orig)) f += 3;
-    if (/夫君|相公|哥哥|表哥|师兄|公子|少爷|王爷|陛下|殿下|皇上/.test(orig) && !/本王|朕|微臣/.test(orig)) f += 2;
-    // Chinese male character indicators
-    if (/他|爹|爸|哥|弟|皇上|陛下|王爷|老子|本王|朕|微臣|贫僧|兄弟|儿子|老公|岳父|老爹|丈夫|将军|师兄|大侠|大人|官人|小的/.test(orig)) m += 3;
-    if (/娘子|夫人|爱妃|妹妹|表妹|师妹|丫头/.test(orig) && !/本宫|臣妾/.test(orig)) m += 2;
-    // Khmer dialogue indicators
-    if (/នាង|អ្នកនាង|ម៉ាក់|ម្ដាយ|បងស្រី|ប្អូនស្រី|អ្នកស្រី|លោកស្រី|ព្រះនាង|មហេសី|ម៉ែ|យាយ|កញ្ញា|នារី|ស្រី/.test(km)) f += 3;
-    if (/លោក|គាត់|បងប្រុស|ប្អូនប្រុស|ប៉ា|ឪពុក|ព្រះអង្គ|ស្ដេច|លោកម្ចាស់|តា|ប្ដី|ប្រុស|មេទ័ព|ក្សត្រ|ចៅហ្វាយ/.test(km)) m += 3;
-    return { f, m };
-  }
+  setProgress(75, 'Translated ' + total + ' lines (' + mCount + ' ♂ Piseth, ' + fCount + ' ♀ Sreymom)', 'Translate Complete');
+  log('✓ Character detection: ' + mCount + ' Piseth (♂ Male) cues, ' + fCount + ' Sreymom (♀ Female) cues.');
+  blog('✓ Character voice detection: ' + mCount + ' Piseth (♂ Male) cues, ' + fCount + ' Sreymom (♀ Female) cues.', 'k');
 
-  // Aggregate speaker character clusters (S0, S1, S2...)
-  const speakerScores = {};
-  segs.forEach(s => {
-    const spk = s.speaker || 'S0';
-    if (!speakerScores[spk]) speakerScores[spk] = { f: 0, m: 0 };
-    const sc = scoreGender(s.text, s.km, s.pitch || 0);
-    speakerScores[spk].f += sc.f;
-    speakerScores[spk].m += sc.m;
-  });
-
-  // Assign accurate character voice (Piseth vs Sreymom)
-  let fCount = 0, mCount = 0;
-  segs.forEach(s => {
-    const spk = s.speaker || 'S0';
-    const cluster = speakerScores[spk] || { f: 0, m: 0 };
-    const sc = scoreGender(s.text, s.km, s.pitch || 0);
-    if (sc.f > sc.m + 1) {
-      s.g = 'f';
-    } else if (sc.m > sc.f + 1) {
-      s.g = 'm';
-    } else if (cluster.f > cluster.m) {
-      s.g = 'f';
-    } else if (cluster.m > cluster.f) {
-      s.g = 'm';
-    } else {
-      s.g = (spk === 'S1' || spk === 'S3') ? 'f' : 'm';
-    }
-    if (s.g === 'f') fCount++; else mCount++;
-  });
-
-  blog('Character voice detection: ' + mCount + ' Piseth (♂ Male) cues, ' + fCount + ' Sreymom (♀ Female) cues.', 'k');
   segs = segs.filter(s => s.km && s.km.trim());
 }
 
@@ -1958,7 +1930,7 @@ if (isResume && startStep === 2) blog('↻ Resuming Step 2 (Khmer translation) f
 if (segs.some(x => !x.km)) { if (isNisayActive()) { await translateNisay(); } else { await translate(); } }
 segs = segs.filter(s => s.km && s.km.trim() && (pasted || s.km !== s.text || /[\u1780-\u17FF]/.test(s.km)));
 if (!segs.length) throw new Error('Translation incomplete. No translated Khmer speech to store into video.');
-if (!pasted) await _0x1154();
+if (!pasted && !isNisayActive()) await _0x1154();
 { const n0 = segs.length; segs = _0x11a9(segs); if (segs.length !== n0) blog('Split long lines: ' + n0 + ' → ' + segs.length + ' lines (each short enough for the voice)', 'k') }
 await _0x140d({ status: 'running', step: 3, pasted, listenChunkIdx: 0, listenSegs: [], segs: _0x13fc(segs), voiceSel: $('voice').value, _0x14fb: mode });
 }
