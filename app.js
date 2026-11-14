@@ -1636,73 +1636,82 @@ const step = (n, st) => {
 
 let _cachedPcm = null;
 
-function detectPitchF0(pcmSlice, sampleRate = 16000) {
-  if (!pcmSlice || pcmSlice.length < 512) return 0;
-  const minLag = Math.floor(sampleRate / 340);
-  const maxLag = Math.floor(sampleRate / 75);
+function detectPitchF0(pcm, sampleRate = 16000) {
+  if (!pcm || pcm.length < 512) return 0;
+  const winSize = 512; // 32ms window
+  const hopSize = 256; // 16ms hop
+  const minLag = Math.floor(sampleRate / 350); // ~45 (350 Hz max)
+  const maxLag = Math.floor(sampleRate / 75);  // ~213 (75 Hz min)
   const pitches = [];
-  const winSize = Math.min(pcmSlice.length - maxLag - 1, 1024);
-  if (winSize < maxLag * 2) return 0;
-  const step = Math.floor((pcmSlice.length - winSize - maxLag) / 4);
-  for (let w = 1; w <= 3; w++) {
-    const start = w * step;
+
+  let maxEnergy = 0;
+  for (let i = 0; i < pcm.length; i += hopSize) {
+    let e = 0;
+    const end = Math.min(pcm.length, i + winSize);
+    for (let j = i; j < end; j++) e += pcm[j] * pcm[j];
+    if (e > maxEnergy) maxEnergy = e;
+  }
+  const energyThresh = maxEnergy * 0.05;
+
+  for (let i = 0; i + winSize + maxLag <= pcm.length; i += hopSize) {
+    let e0 = 0;
+    for (let j = 0; j < winSize; j++) e0 += pcm[i + j] * pcm[i + j];
+    if (e0 < energyThresh || e0 < 0.0001) continue;
+
     let bestCorr = 0;
     let bestLag = 0;
-    let energy = 0;
-    for (let i = 0; i < winSize; i++) {
-      energy += pcmSlice[start + i] * pcmSlice[start + i];
-    }
-    if (energy < 0.0001) continue;
     for (let lag = minLag; lag <= maxLag; lag++) {
-      let corr = 0;
-      for (let i = 0; i < winSize; i++) {
-        corr += pcmSlice[start + i] * pcmSlice[start + i + lag];
+      let c = 0, eLag = 0;
+      for (let j = 0; j < winSize; j++) {
+        const v1 = pcm[i + j];
+        const v2 = pcm[i + j + lag];
+        c += v1 * v2;
+        eLag += v2 * v2;
       }
-      if (corr > bestCorr) {
-        bestCorr = corr;
+      const normCorr = c / Math.sqrt(Math.max(1e-6, e0 * eLag));
+      if (normCorr > bestCorr) {
+        bestCorr = normCorr;
         bestLag = lag;
       }
     }
-    if (bestLag > 0 && (bestCorr / energy) > 0.35) {
+    if (bestCorr > 0.40 && bestLag > 0) {
       pitches.push(sampleRate / bestLag);
     }
   }
+
   if (!pitches.length) return 0;
-  return pitches.reduce((a, b) => a + b, 0) / pitches.length;
+  pitches.sort((a, b) => a - b);
+  return pitches[Math.floor(pitches.length / 2)]; // Median pitch
 }
 
 async function listenNisay(resumed) {
   const nisayKey = getNisayKey();
   if (!nisayKey) throw new Error('Please enter your NISAY API Key in the Providers tab.');
 
-  setProgress(10, 'Preparing media for NISAY Transcriber...', 'Analyzing Media');
-  log('Preparing audio for NISAY Transcribe engine…');
+  setProgress(10, 'Analyzing audio waveform for character pitch detection...', 'Analyzing Audio');
+  log('Extracting audio track for real character voice pitch detection…');
 
   let mediaFile = curFile;
-  // If file is large (> 60MB), extract 16kHz WAV to ensure fast network upload
-  if (!mediaFile || mediaFile.size > 60 * 1024 * 1024) {
-    try {
-      setProgress(12, 'Extracting 16kHz audio track from video...', 'Extracting Audio');
-      const a = await _0x1165();
-      const pcmList = [];
-      for (let k = 0; k < a.total; k++) {
-        pcmList.push(await a.getPcm(k));
-        setProgress(12 + Math.round(((k + 1) / a.total) * 12), 'Extracting audio: ' + Math.round(((k + 1) / a.total) * 100) + '%', 'Extracting Audio');
-      }
-      const totalLen = pcmList.reduce((acc, c) => acc + c.length, 0);
-      const merged = new Float32Array(totalLen);
-      let offset = 0;
-      for (const p of pcmList) {
-        merged.set(p, offset);
-        offset += p.length;
-      }
-      _cachedPcm = merged;
-      mediaFile = new Blob([wav(merged)], { type: 'audio/wav' });
-      blog('✓ Audio extracted: ' + (mediaFile.size / 1024 / 1024).toFixed(2) + ' MB WAV (16kHz mono)', 'k');
-    } catch (err) {
-      blog('⚠ Media fallback: using video directly (' + (err.message || err) + ')', 'w');
-      mediaFile = curFile;
+  try {
+    const a = await _0x1165();
+    const pcmList = [];
+    for (let k = 0; k < a.total; k++) {
+      pcmList.push(await a.getPcm(k));
+      setProgress(10 + Math.round(((k + 1) / a.total) * 14), 'Extracting voice frequencies: ' + Math.round(((k + 1) / a.total) * 100) + '%', 'Analyzing Audio');
     }
+    const totalLen = pcmList.reduce((acc, c) => acc + c.length, 0);
+    const merged = new Float32Array(totalLen);
+    let offset = 0;
+    for (const p of pcmList) {
+      merged.set(p, offset);
+      offset += p.length;
+    }
+    _cachedPcm = merged;
+    mediaFile = new Blob([wav(merged)], { type: 'audio/wav' });
+    blog('✓ Voice acoustic waveform ready: ' + (merged.length / 16000).toFixed(1) + 's 16kHz audio (' + (mediaFile.size / 1024 / 1024).toFixed(2) + ' MB)', 'k');
+  } catch (err) {
+    blog('⚠ Audio extraction notice: ' + (err.message || err), 'w');
+    mediaFile = curFile;
   }
 
   setProgress(25, 'Sending media to NISAY Gateway (model: nisay-transcribe)...', 'NISAY Transcribing');
@@ -1746,20 +1755,25 @@ async function listenNisay(resumed) {
     throw new Error('No speech was found in the video audio.');
   }
 
-  // CRITICAL: Map both 't' (used by player, scheduler, srt, subtitles) and 's'
+  // Acoustic Pitch F0 calculation for every segment
   const out = cues.map((seg, idx) => {
-    const spk = seg.speaker || seg.speaker_id || ('S' + (idx % 2));
     const startSec = typeof seg.start === 'number' ? seg.start : parseFloat(seg.start) || 0;
     const endSec = typeof seg.end === 'number' ? seg.end : parseFloat(seg.end) || (startSec + 2.2);
     
     let pitch = 0;
+    let acousticGender = '';
     if (_cachedPcm && _cachedPcm.length) {
       const sIdx = Math.max(0, Math.floor(startSec * 16000));
       const eIdx = Math.min(_cachedPcm.length, Math.floor(endSec * 16000));
       if (eIdx > sIdx + 512) {
-        pitch = detectPitchF0(_cachedPcm.subarray(sIdx, eIdx));
+        pitch = Math.round(detectPitchF0(_cachedPcm.subarray(sIdx, eIdx)));
+        if (pitch >= 165) acousticGender = 'f';
+        else if (pitch >= 65 && pitch < 165) acousticGender = 'm';
       }
     }
+
+    const defaultG = acousticGender || 'm';
+    const spk = seg.speaker || (defaultG === 'f' ? 'S1 (♀ តួស្រី)' : 'S0 (♂ តួប្រុស)');
 
     return {
       t: Math.max(0, startSec),
@@ -1768,8 +1782,9 @@ async function listenNisay(resumed) {
       text: String(seg.text || '').trim(),
       km: '',
       speaker: spk,
-      pitch: Math.round(pitch),
-      g: 'm'
+      pitch: pitch,
+      acousticGender: acousticGender,
+      g: defaultG
     };
   }).filter(s => s.text);
 
@@ -1878,35 +1893,51 @@ async function translateNisay() {
             // Clean any leading line numbers
             rawText = rawText.replace(/^(\d+|[០-៩]+)\s*[\.\:\-\)\]\s]\s*/, '').trim();
 
-            let detectedGender = '';
+            let aiGender = '';
             // Comprehensive tag extraction regex
             const isF = /^(?:\[(ស្រី|នារី|ស្រីមុំ|Female|Woman|Girl|F)\]|\((ស្រី|នារី|ស្រីមុំ|Female|Woman|Girl|F)\)|(?:ស្រី|នារី|ស្រីមុំ|Female|Woman|Girl|F)\s*[:៖\-]|(?:ស្រី|នារី)\s+)[\s:៖\-]*/i.test(rawText);
             const isM = /^(?:\[(ប្រុស|បុរស|ពិសិដ្ឋ|Male|Man|Boy|M)\]|\((ប្រុស|បុរស|ពិសិដ្ឋ|Male|Man|Boy|M)\)|(?:ប្រុស|បុរស|ពិសិដ្ឋ|Male|Man|Boy|M)\s*[:៖\-]|(?:ប្រុស|បុរស)\s+)[\s:៖\-]*/i.test(rawText);
 
             if (isF && !isM) {
-              detectedGender = 'f';
+              aiGender = 'f';
               rawText = rawText.replace(/^(?:\[(ស្រី|នារី|ស្រីមុំ|Female|Woman|Girl|F)\]|\((ស្រី|នារី|ស្រីមុំ|Female|Woman|Girl|F)\)|(?:ស្រី|នារី|ស្រីមុំ|Female|Woman|Girl|F)\s*[:៖\-]|(?:ស្រី|នារី)\s+)[\s:៖\-]*/i, '').trim();
             } else if (isM) {
-              detectedGender = 'm';
+              aiGender = 'm';
               rawText = rawText.replace(/^(?:\[(ប្រុស|បុរស|ពិសិដ្ឋ|Male|Man|Boy|M)\]|\((ប្រុស|បុរស|ពិសិដ្ឋ|Male|Man|Boy|M)\)|(?:ប្រុស|បុរស|ពិសិដ្ឋ|Male|Man|Boy|M)\s*[:៖\-]|(?:ប្រុស|បុរស)\s+)[\s:៖\-]*/i, '').trim();
             }
 
-            // Fallback drama contextual check if AI omitted prefix
-            if (!detectedGender) {
-              const orig = segs[segIdx].text || '';
-              const inferred = inferDramaGender(orig, rawText);
-              if (inferred) {
-                detectedGender = inferred;
-              } else if (segs[segIdx].pitch > 0) {
-                detectedGender = segs[segIdx].pitch > 175 ? 'f' : 'm';
-              } else {
-                // If previous line was m and this looks responsive, alternate or keep speaker
-                const prev = segs[segIdx - 1];
-                detectedGender = (prev && prev.g === 'm') ? 'f' : 'm';
-              }
+            // Real physical vocal cord pitch from video audio
+            const pitch = segs[segIdx].pitch || 0;
+            let acousticGender = segs[segIdx].acousticGender || '';
+            if (!acousticGender && pitch > 0) {
+              if (pitch >= 165) acousticGender = 'f';
+              else if (pitch >= 65 && pitch < 165) acousticGender = 'm';
             }
 
-            segs[segIdx].g = detectedGender;
+            // High-confidence Chinese drama vocatives / self-pronouns check
+            const orig = segs[segIdx].text || '';
+            const semanticGender = inferDramaGender(orig, rawText);
+
+            // MULTI-MODAL DECISION FUSION:
+            let finalGender = '';
+            // 1. Physical audio vocal frequency takes priority when confident
+            if (pitch >= 168) {
+              finalGender = 'f'; // Acoustic pitch >= 168 Hz is biologically female
+            } else if (pitch >= 70 && pitch <= 148) {
+              finalGender = 'm'; // Acoustic pitch <= 148 Hz is biologically male
+            } else if (semanticGender) {
+              finalGender = semanticGender; // Vocatives (who addressed whom)
+            } else if (aiGender) {
+              finalGender = aiGender;
+            } else if (acousticGender) {
+              finalGender = acousticGender;
+            } else {
+              const prev = segs[segIdx - 1];
+              finalGender = (prev && prev.g === 'm') ? 'f' : 'm';
+            }
+
+            segs[segIdx].g = finalGender;
+            segs[segIdx].speaker = finalGender === 'f' ? 'S1 (♀ តួស្រី)' : 'S0 (♂ តួប្រុស)';
             segs[segIdx].km = rawText;
           }
         });
