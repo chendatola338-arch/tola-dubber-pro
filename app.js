@@ -2108,7 +2108,13 @@ toast('✓ Dubbing complete! Click Play to watch');
 busy(false);
 if ($('goWrap') && !$('goWrap').hidden) _0x14b7({ disabled: false });
 }
-$('go').onclick = () => _0x1451(null);
+$('go').onclick = () => {
+  if (!hasActiveSubscription()) {
+    openPaywallModal(() => _0x1451(null));
+    return;
+  }
+  _0x1451(null);
+};
 async function _0x1462() {
 try {
 const [f, st] = await Promise.all([_0x13a7('videoFile'), _0x13a7('dubState')]);
@@ -2534,6 +2540,317 @@ async function clearAllSavedSession() {
   log('✓ Session cache cleared. You can now start a fresh dub!');
   toast('✓ Cleared saved session cache');
 }
+
+// --- TOLA Dubber PRO VIP Subscription & ABA PayWay Integration ---
+const VIP_STORAGE_KEY = 'tola_dubber_pro_vip';
+const ABA_PAYWAY_URL = 'https://link.payway.com.kh/ABAPAYlP553382Z';
+const PAYWAY_API_BASE = 'https://payway.jlastore.com';
+
+let _pendingVipSuccessCallback = null;
+let _payPollingTimer = null;
+let _payCountdownTimer = null;
+let _selectedPlan = {
+  id: '2_months',
+  amount: '8.99',
+  months: 2,
+  title: 'កញ្ចប់ ២ ខែ'
+};
+
+function getSubscription() {
+  try {
+    const raw = localStorage.getItem(VIP_STORAGE_KEY);
+    if (!raw) return null;
+    const sub = JSON.parse(raw);
+    if (sub && sub.active && sub.expires_at > Date.now()) {
+      return sub;
+    }
+  } catch (_) {}
+  return null;
+}
+
+function hasActiveSubscription() {
+  return getSubscription() !== null;
+}
+
+function saveSubscription(planId, title, amount, months, tranId, method) {
+  const expiresAt = Date.now() + (months * 30 * 24 * 60 * 60 * 1000);
+  const sub = {
+    active: true,
+    plan: planId,
+    plan_title: title,
+    amount: amount,
+    tran_id: tranId,
+    created_at: Date.now(),
+    expires_at: expiresAt,
+    method: method || 'ABA_PAYWAY_KHQR'
+  };
+  localStorage.setItem(VIP_STORAGE_KEY, JSON.stringify(sub));
+  updateVipBadgeUI();
+  return sub;
+}
+
+function updateVipBadgeUI() {
+  const vipBtn = $('vipBtn');
+  const vipText = $('vipBtnText');
+  if (!vipBtn || !vipText) return;
+
+  const sub = getSubscription();
+  if (sub) {
+    vipBtn.classList.add('active');
+    const daysLeft = Math.max(1, Math.ceil((sub.expires_at - Date.now()) / (24 * 60 * 60 * 1000)));
+    vipText.textContent = `VIP (${daysLeft} ថ្ងៃ)`;
+    vipBtn.title = `VIP Active: ${sub.plan_title} (${daysLeft} ថ្ងៃនៅសល់)`;
+  } else {
+    vipBtn.classList.remove('active');
+    vipText.textContent = 'VIP Plan';
+    vipBtn.title = 'Upgrade to VIP Subscription';
+  }
+}
+
+function openPaywallModal(onSuccess) {
+  _pendingVipSuccessCallback = typeof onSuccess === 'function' ? onSuccess : null;
+  const modal = $('payModal');
+  if (!modal) return;
+
+  if ($('payModalPlansView')) $('payModalPlansView').style.display = 'block';
+  if ($('payModalQrView')) $('payModalQrView').style.display = 'none';
+
+  clearInterval(_payPollingTimer);
+  clearInterval(_payCountdownTimer);
+
+  const sub = getSubscription();
+  if (sub) {
+    const days = Math.max(1, Math.ceil((sub.expires_at - Date.now()) / (24 * 60 * 60 * 1000)));
+    toast(`👑 លោកអ្នកជាសមាជិក VIP រួចហើយ (${days} ថ្ងៃនៅសល់)`);
+  }
+
+  modal.classList.add('open');
+}
+
+function closePaywallModal() {
+  const modal = $('payModal');
+  if (modal) modal.classList.remove('open');
+  clearInterval(_payPollingTimer);
+  clearInterval(_payCountdownTimer);
+}
+
+function isPaymentApproved(res) {
+  if (!res) return false;
+  if (res.status === 'approved' || res.status === 0 || res.status === '0') return true;
+  if (res.status && typeof res.status === 'object' && res.status.tran_id && String(res.status.tran_id).trim() !== '') return true;
+  if (res.data) {
+    if (res.data.download_receipt && String(res.data.download_receipt).trim() !== '') return true;
+    if (res.data.message && res.data.message.tran_id && String(res.data.message.tran_id).trim() !== '') return true;
+    if (res.data.status === 'approved' || res.data.status === 0 || res.data.status === '0') return true;
+  }
+  return false;
+}
+
+async function startPaywayCheckout(plan) {
+  const startBtn = $('startPayBtn');
+  if (!startBtn) return;
+  const originalHtml = startBtn.innerHTML;
+  startBtn.disabled = true;
+  startBtn.innerHTML = '⏳ កំពុងបង្កើត QR Code ពី ABA PayWay...';
+
+  const tranId = 'TOLA_' + Date.now();
+  const continueUrl = window.location.origin + window.location.pathname + '?paid=success&tran_id=' + tranId + '&months=' + plan.months;
+  const cancelUrl = window.location.origin + window.location.pathname + '?paid=cancel';
+
+  try {
+    const res = await fetch(PAYWAY_API_BASE + '/api/create-tran', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        amount: plan.amount,
+        tran_id: tranId,
+        aba_data: ABA_PAYWAY_URL,
+        continue_url: continueUrl,
+        cancel_url: cancelUrl
+      })
+    });
+
+    if (!res.ok) {
+      throw new Error('Server returned HTTP ' + res.status);
+    }
+
+    const data = await res.json();
+    if (!data || !data.data || !data.data.qr_string) {
+      throw new Error((data && data.message) || 'មិនអាចបង្កើត KHQR បានទេ');
+    }
+
+    if ($('payModalPlansView')) $('payModalPlansView').style.display = 'none';
+    if ($('payModalQrView')) $('payModalQrView').style.display = 'block';
+
+    if ($('qrPayAmount')) $('qrPayAmount').textContent = '$' + plan.amount;
+    const qrImgUrl = 'https://api.qrserver.com/v1/create-qr-code/?size=280x280&data=' + encodeURIComponent(data.data.qr_string);
+    if ($('qrPayImg')) $('qrPayImg').src = qrImgUrl;
+
+    if ($('openAbaDeepLink')) {
+      $('openAbaDeepLink').href = data.deeplink || ('abamobilebank://ababank.com?type=payway&qrcode=' + encodeURIComponent(data.data.qr_string));
+    }
+    if ($('openCheckoutLink')) {
+      $('openCheckoutLink').href = data.checkout_url || '#';
+    }
+
+    let timeLeft = 180;
+    const updateCountdownDisplay = () => {
+      const m = Math.floor(timeLeft / 60).toString().padStart(2, '0');
+      const s = (timeLeft % 60).toString().padStart(2, '0');
+      if ($('qrCountdown')) $('qrCountdown').textContent = `${m}:${s}`;
+    };
+    updateCountdownDisplay();
+
+    clearInterval(_payCountdownTimer);
+    _payCountdownTimer = setInterval(() => {
+      timeLeft--;
+      if (timeLeft <= 0) {
+        clearInterval(_payCountdownTimer);
+        clearInterval(_payPollingTimer);
+        if ($('qrCountdown')) $('qrCountdown').textContent = '00:00 (Expired)';
+        toast('⚠ QR Code ផុតកំណត់ហើយ សូមចុចត្រឡប់ក្រោយដើម្បីបង្កើតម្តងទៀត');
+      } else {
+        updateCountdownDisplay();
+      }
+    }, 1000);
+
+    clearInterval(_payPollingTimer);
+    _payPollingTimer = setInterval(async () => {
+      try {
+        const checkRes = await fetch(PAYWAY_API_BASE + '/api/check-payment-status', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ tran_id: tranId })
+        });
+        if (checkRes.ok) {
+          const checkData = await checkRes.json();
+          if (isPaymentApproved(checkData)) {
+            clearInterval(_payPollingTimer);
+            clearInterval(_payCountdownTimer);
+            saveSubscription(plan.id, plan.title, plan.amount, plan.months, tranId, 'ABA_PAYWAY_KHQR');
+            closePaywallModal();
+            try { confetti(); } catch (_) {}
+            toast(`🎉 ការទូទាត់ជោគជ័យ! សូមស្វាគមន៍មកកាន់ TOLA Dubber PRO VIP (${plan.title})`);
+            log(`✓ Payment Approved! Tran ID: ${tranId} - Activated ${plan.title}`);
+            if (_pendingVipSuccessCallback) {
+              const cb = _pendingVipSuccessCallback;
+              _pendingVipSuccessCallback = null;
+              cb();
+            }
+          }
+        }
+      } catch (err) {
+        console.warn('Status poll warning:', err);
+      }
+    }, 3000);
+
+  } catch (err) {
+    alert('មិនអាចភ្ជាប់ទៅកាន់ប្រព័ន្ធ ABA PayWay បានទេ៖ ' + (err.message || err));
+  } finally {
+    startBtn.disabled = false;
+    startBtn.innerHTML = originalHtml;
+  }
+}
+
+function handleVipCodeActivation(code) {
+  if (!code) {
+    toast('សូមបញ្ចូល VIP Code');
+    return;
+  }
+  const clean = code.trim().toUpperCase();
+  const validMasterCodes = ['TOLA-VIP-PRO', 'CHENDATOLA', 'TOLA168', 'VIP2026', 'ADMIN-TOLA'];
+  if (validMasterCodes.includes(clean)) {
+    saveSubscription('master_vip_1yr', 'Master VIP Pass (១ ឆ្នាំ)', '0.00', 12, 'MASTER_' + Date.now(), 'VIP_CODE');
+    closePaywallModal();
+    try { confetti(); } catch (_) {}
+    toast('✓ VIP Activation Code ជោគជ័យ! អ្នកអាចប្រើប្រាស់មុខងារបកប្រែបាន ១ ឆ្នាំពេញ');
+    log('✓ VIP Master Code Activated: ' + clean);
+    if (_pendingVipSuccessCallback) {
+      const cb = _pendingVipSuccessCallback;
+      _pendingVipSuccessCallback = null;
+      cb();
+    }
+  } else {
+    toast('✕ VIP Code មិនត្រឹមត្រូវទេ សូមពិនិត្យម្តងទៀត');
+  }
+}
+
+function checkUrlPaymentCallback() {
+  try {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('paid') === 'success') {
+      const tranId = params.get('tran_id') || ('TOLA_RETURN_' + Date.now());
+      const months = parseInt(params.get('months') || '2', 10);
+      const planTitle = months === 1 ? 'កញ្ចប់ ១ ខែ' : months === 3 ? 'កញ្ចប់ ៣ ខែ' : 'កញ្ចប់ ២ ខែ';
+      const amount = months === 1 ? '6.00' : months === 3 ? '14.99' : '8.99';
+      saveSubscription(months + '_months', planTitle, amount, months, tranId, 'ABA_PAYWAY_REDIRECT');
+      try { confetti(); } catch (_) {}
+      toast(`🎉 ការទូទាត់ជោគជ័យ! សូមស្វាគមន៍មកកាន់ VIP (${planTitle})`);
+      window.history.replaceState({}, document.title, window.location.pathname);
+    }
+  } catch (_) {}
+}
+
+// VIP UI Event Listeners
+const planCards = document.querySelectorAll('.pay-plan-card');
+planCards.forEach(card => {
+  card.onclick = () => {
+    planCards.forEach(c => c.classList.remove('selected'));
+    card.classList.add('selected');
+    _selectedPlan = {
+      id: card.dataset.plan,
+      amount: card.dataset.amount,
+      months: parseInt(card.dataset.months || '1', 10),
+      title: card.dataset.title
+    };
+    const startBtn = $('startPayBtn');
+    if (startBtn) {
+      startBtn.innerHTML = `💳 បង់ប្រាក់ឥឡូវនេះតាម ABA PayWay / KHQR ($${_selectedPlan.amount})`;
+    }
+  };
+});
+
+if ($('startPayBtn')) {
+  $('startPayBtn').onclick = () => {
+    startPaywayCheckout(_selectedPlan);
+  };
+}
+
+if ($('cancelPayBtn')) {
+  $('cancelPayBtn').onclick = () => {
+    clearInterval(_payPollingTimer);
+    clearInterval(_payCountdownTimer);
+    if ($('payModalQrView')) $('payModalQrView').style.display = 'none';
+    if ($('payModalPlansView')) $('payModalPlansView').style.display = 'block';
+  };
+}
+
+if ($('closePayModalBtn')) {
+  $('closePayModalBtn').onclick = closePaywallModal;
+}
+
+if ($('payModal')) {
+  $('payModal').onclick = e => {
+    if (e.target === $('payModal')) closePaywallModal();
+  };
+}
+
+if ($('applyVipCodeBtn') && $('vipCodeInput')) {
+  $('applyVipCodeBtn').onclick = () => {
+    handleVipCodeActivation($('vipCodeInput').value);
+  };
+  $('vipCodeInput').onkeydown = e => {
+    if (e.key === 'Enter') handleVipCodeActivation($('vipCodeInput').value);
+  };
+}
+
+if ($('vipBtn')) {
+  $('vipBtn').onclick = () => openPaywallModal();
+}
+
+// Initialize VIP state and URL return on startup
+updateVipBadgeUI();
+checkUrlPaymentCallback();
 
 if ($('resetBtn')) $('resetBtn').onclick = clearAllSavedSession;
 if ($('clearCacheBtn')) $('clearCacheBtn').onclick = clearAllSavedSession;
