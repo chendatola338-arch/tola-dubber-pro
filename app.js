@@ -1,6 +1,6 @@
 (() => {
 "use strict";
-const _0x1000 = 'https://t.me/donateTOmeta';
+const _0x1000 = 'https://t.me/toladubberprov1';
 const $ = id => document.getElementById(id);
 const v = $('v');
 let _bl = '';
@@ -2218,7 +2218,8 @@ if (ok) { a.href = _0x1000; a.style.display = '' }
 else { a.removeAttribute('href'); a.style.display = 'none'; void e.offsetWidth; e.textContent = '⚠ Telegram link is not set or invalid. Open the file and set _0x1000 to a link like https://t.me/yourname'; e.classList.add('on') }
 $('mod').classList.add('on');
 }
-$('donateBtn').onclick = $('donateLink').onclick = _0x1385;
+$('donateBtn').onclick = _0x1385;
+$('donateLink').onclick = (e) => { window.open('https://t.me/toladubberprov1', '_blank'); e.preventDefault(); };
 $('mclose').onclick = () => $('mod').classList.remove('on');
 $('mod').onclick = e => { if (e.target === $('mod')) $('mod').classList.remove('on') };
 
