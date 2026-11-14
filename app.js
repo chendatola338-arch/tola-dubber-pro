@@ -1796,10 +1796,11 @@ async function translateNisay() {
 
   for (let p = 0; p < total; p += batchSize) {
     const ids = need.slice(p, p + batchSize);
-    const batchTexts = ids.map((i, k) => (k + 1) + '. ' + segs[i].text);
+    // Send clean texts directly without artificial number prefixes
+    const batchTexts = ids.map(i => segs[i].text);
 
     const pct = 45 + Math.round((done / total) * 30);
-    setProgress(pct, 'Translating & detecting characters (' + done + '/' + total + ')...', 'NISAY Translating');
+    setProgress(pct, 'Translating & detecting character genders (' + done + '/' + total + ')...', 'NISAY Translating');
     log('Translating with NISAY gpt-5.6-luna [' + category + ']… ' + done + '/' + total);
 
     let success = false;
@@ -1817,7 +1818,7 @@ async function translateNisay() {
             target_lang: 'km',
             model: 'gpt-5.6-luna',
             category: category,
-            context: 'Story genre: ' + category + '. Video dubbing mode: For every single line, analyze the story characters and scene. Prefix each line with [ស្រី] if spoken by a female character (Sreymom), or [ប្រុស] if spoken by a male character (Piseth). Example: [ស្រី] ខ្ញុំ... or [ប្រុស] ខ្ញុំ... Keep translations concise and punchy for lip-sync.'
+            context: 'Story genre: ' + category + '. Video dubbing mode: For each line, analyze the speaker context. Prefix each line with [ស្រី] if spoken by a female character, or [ប្រុស] if spoken by a male character. Example: [ស្រី] ខ្ញុំ... or [ប្រុស] ខ្ញុំ... Keep translations concise and punchy for lip-sync.'
           })
         });
 
@@ -1839,27 +1840,33 @@ async function translateNisay() {
           if (segIdx !== undefined && segs[segIdx]) {
             let rawText = String(item.text || '').trim();
             
-            // 1. Detect character gender directly from gpt-5.6-luna prefix
-            if (/^\[(ស្រី|នារី|ស្រីមុំ|F|Female)\]/i.test(rawText)) {
-              segs[segIdx].g = 'f';
-              rawText = rawText.replace(/^\[(ស្រី|នារី|ស្រីមុំ|F|Female)\]\s*/i, '');
-            } else if (/^\[(ប្រុស|បុរស|ពិសិដ្ឋ|M|Male)\]/i.test(rawText)) {
-              segs[segIdx].g = 'm';
-              rawText = rawText.replace(/^\[(ប្រុស|បុរស|ពិសិដ្ឋ|M|Male)\]\s*/i, '');
-            } else {
-              // 2. Keyword check if tag missing
+            // Clean any leading line numbers
+            rawText = rawText.replace(/^(\d+|[០-៩]+)\s*[\.\:\-\)\]\s]\s*/, '').trim();
+
+            let detectedGender = '';
+            // Check for [ស្រី] or [ប្រុស] tag
+            if (/^\[?\s*(ស្រី|នារី|ស្រីមុំ|Female|Woman|Girl|F)\s*\]?[\s:៖\-]/i.test(rawText) || rawText.startsWith('[ស្រី]')) {
+              detectedGender = 'f';
+            } else if (/^\[?\s*(ប្រុស|បុរស|ពិសិដ្ឋ|Male|Man|Boy|M)\s*\]?[\s:៖\-]/i.test(rawText) || rawText.startsWith('[ប្រុស]')) {
+              detectedGender = 'm';
+            }
+
+            // Strip the prefix from the start of the string
+            rawText = rawText.replace(/^\[?\s*(ស្រី|នារី|ស្រីមុំ|ប្រុស|បុរស|ពិសិដ្ឋ|Female|Male|F|M)\s*\]?[\s:៖\-]*/i, '').trim();
+
+            // Fallback keyword check if AI did not provide prefix
+            if (!detectedGender) {
               const orig = segs[segIdx].text || '';
               if (/[她娘妈妹姐姑妇妾妃后丫婆女]|姑娘|姐姐|妹妹|妈妈|母亲|夫人|皇后|公主|娘娘|贵妃|丫鬟|丫头|臣妾|本宫|贱妾|小女|妾身|媳妇|婆婆|姑姑|阿姨|婶婶|女侠|小姐|នាង|អ្នកនាង|ម៉ាក់|ម្ដាយ|បងស្រី|ប្អូនស្រី|អ្នកស្រី|លោកស្រី|ព្រះនាង|មហេសី|ម៉ែ|យាយ|កញ្ញា|នារី|ស្រី/.test(orig + ' ' + rawText)) {
-                segs[segIdx].g = 'f';
+                detectedGender = 'f';
               } else if (/[他爹爸哥弟]|皇上|陛下|王爷|老子|本王|朕|微臣|贫僧|兄弟|儿子|老公|岳父|老爹|丈夫|将军|师兄|大侠|大人|官人|小的|លោក|គាត់|បងប្រុស|ប្អូនប្រុស|ប៉ា|ឪពុក|ព្រះអង្គ|ស្ដេច|លោកម្ចាស់|តា|ប្ដី|ប្រុស|មេទ័ព|ក្សត្រ|ចៅហ្វាយ/.test(orig + ' ' + rawText)) {
-                segs[segIdx].g = 'm';
+                detectedGender = 'm';
               } else {
-                segs[segIdx].g = 'm';
+                detectedGender = (segs[segIdx].speaker === 'S1') ? 'f' : 'm';
               }
             }
 
-            // Remove any leading numbers like "1. " or "១. "
-            rawText = rawText.replace(/^(\d+|[០-៩]+)\s*[\.\:\-]\s*/, '').trim();
+            segs[segIdx].g = detectedGender;
             segs[segIdx].km = rawText;
           }
         });
