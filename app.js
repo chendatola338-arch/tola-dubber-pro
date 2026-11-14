@@ -2382,4 +2382,39 @@ if ($('nisayTestBtn')) {
 }
 
 
+
+async function clearAllSavedSession() {
+  try {
+    const db = await _0x1396();
+    const tx = db.transaction('kv', 'readwrite');
+    const st = tx.objectStore('kv');
+    st.delete('dubState');
+    st.delete('videoFile');
+    const req = st.openCursor();
+    req.onsuccess = e => {
+      const cur = e.target.result;
+      if (cur) {
+        if (String(cur.key).startsWith('audio_')) cur.delete();
+        cur.continue();
+      }
+    };
+  } catch (_) {}
+  segs = [];
+  dubbing = false;
+  plan = [];
+  played = new Set();
+  spoken = new Set();
+  $('resCard').hidden = true;
+  if ($('speakerBar')) $('speakerBar').style.display = 'none';
+  if ($('editHint')) $('editHint').hidden = true;
+  _0x14b7({ hidden: false, disabled: false });
+  ['s1', 's2', 's3'].forEach(i => $(i).className = 's');
+  setProgress(0, 'Cache cleared. Ready for fresh dubbing!', 'Ready');
+  log('✓ Session cache cleared. You can now start a fresh dub!');
+  toast('✓ Cleared saved session cache');
+}
+
+if ($('resetBtn')) $('resetBtn').onclick = clearAllSavedSession;
+if ($('clearCacheBtn')) $('clearCacheBtn').onclick = clearAllSavedSession;
+
 })();
