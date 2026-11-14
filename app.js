@@ -825,7 +825,7 @@ const gen = async i => {
 const txt = _0x1176(segs[i].km), voice = _0x14ea(segs[i]);
 for (const sz of [140, 60, 28]) {
 try {
-await _0x141e(i, await _0x11cb(base, txt, voice, '+0%', sz));
+await _0x141e(i, await _0x11cb(base, txt, voice, '+8%', sz));
 return;
 } catch (e) {
 if (sz === 28) throw e;
@@ -1003,40 +1003,39 @@ catch (_) { s.dur = 0; s.buf = null; s.fit = null }
 async function _0x1297() {
 await _0x1286();
 const cl = segs.map((s, i) => ({ s, i })).filter(x => x.s.audio && x.s.dur), vd = Number.isFinite(v.duration) && v.duration > 0 ? v.duration : 1e9, out = [];
-let fitted = 0, cursor = 0, stretched = 0;
+let fitted = 0, stretched = 0;
 for (let k = 0; k < cl.length; k++) {
 const { s, i } = cl[k], nx = cl[k + 1];
-const st = Math.max(0, s.t, cursor);
-const cueEnd = Math.max(st + 0.4, Number(s.e) > s.t ? Number(s.e) : s.t + 2.5);
+// Frame-Accurate Lip-Sync: Start EXACTLY when the actor opens their mouth in the video!
+const st = Math.max(0, s.t);
 const nextSt = nx ? nx.s.t : vd;
-const base = Math.max(0.4, Math.min(cueEnd - st, vd - st));
-const untilNext = nx ? Math.max(0.35, nextSt - st - 0.03) : Math.max(0.4, vd - st);
-const slot = Math.max(base, untilNext);
+// Actor mouth duration window from transcribed speech timestamps
+const cueDur = Math.max(0.35, (Number(s.e) > s.t ? Number(s.e) : s.t + 2.0) - s.t);
+const maxAvailable = Math.max(0.35, nextSt - st - 0.04);
+const targetDur = Math.min(cueDur + 0.22, maxAvailable);
 let b = s.buf;
 let sp = 1;
-if (s.dur <= base + 0.15) {
-sp = 1;
-} else if (s.dur <= slot) {
-const ratio = s.dur / base;
-sp = ratio > 1.15 ? Math.min(1.12, ratio) : 1;
-} else {
-// Balanced natural pace: never rushed (max 1.16x) and never dragged (min 0.98x)
-sp = Math.min(1.16, Math.max(0.98, s.dur / Math.max(0.45, untilNext)));
+// Time-stretch audio to fit character mouth duration naturally
+if (s.dur > targetDur) {
+  // Speed up dynamically (up to 1.36x) so voice finishes as character mouth closes
+  sp = Math.min(1.36, Math.max(1.03, s.dur / targetDur));
+} else if (s.dur < cueDur * 0.70 && cueDur <= maxAvailable) {
+  // Ease tempo slightly for very short bursts
+  sp = Math.max(0.95, s.dur / (cueDur * 0.90));
 }
-if (sp > 1.03) {
-const key = sp.toFixed(3);
-if (!s.fit || s.fit.k !== key || s.fit.src !== s.buf) {
-s.fit = { k: key, src: s.buf, b: _0x1253(s.buf, sp) };
-if (++stretched % 10 === 0) await sleep(0);
+if (Math.abs(sp - 1) > 0.03) {
+  const key = sp.toFixed(3);
+  if (!s.fit || s.fit.k !== key || s.fit.src !== s.buf) {
+    s.fit = { k: key, src: s.buf, b: _0x1253(s.buf, sp) };
+    if (++stretched % 10 === 0) await sleep(0);
+  }
+  b = s.fit.b; fitted++;
 }
-b = s.fit.b; fitted++;
-}
-const maxRemain = Math.max(0.4, vd + 0.5 - st);
-if (b.duration > maxRemain) b = _0x1275(b, maxRemain);
+// Prevent audio overlap into next character's line
+if (b.duration > maxAvailable) b = _0x1275(b, maxAvailable);
 out.push({ i, st, b });
-cursor = st + b.duration + 0.02;
 }
-blog('Timeline fit: ' + out.length + ' clips scheduled, ' + fitted + ' adjusted to match video timing.', 'k');
+blog('Lip-Sync Timeline fit: ' + out.length + ' clips frame-locked to actor lips (' + fitted + ' time-aligned).', 'k');
 return out;
 }
 function _0x12a8(ctx, dest, p, delay, gain) {
@@ -1865,7 +1864,7 @@ async function translateNisay() {
       '1. When a character addresses a female (e.g. 姑娘/小姐/夫人/娘子/妹妹/她/អ្នកនាង/កញ្ញា), the SPEAKER IS MALE -> prefix [ប្រុស]. ' +
       '2. When a character addresses a male (e.g. 少爷/王爷/公子/陛下/皇上/夫君/相公/哥/他/លោកម្ចាស់/ព្រះអង្គ), the SPEAKER IS FEMALE -> prefix [ស្រី]. ' +
       '3. Self-pronouns: 本少爷/朕/本王/微臣/老子/末将/为夫 = [ប្រុស]; 臣妾/本宫/小女/妾身/奴婢/奴家/为妻 = [ស្រី]. ' +
-      '4. Keep translations natural, conversational and punchy for lip-sync. Example: [ប្រុស] ឈប់ភ្លាម! or [ស្រី] លោកម្ចាស់ ខ្ញុំ...';
+      '4. STRICT LIP-SYNC TIMING: Khmer translation length MUST match the actor mouth movement duration! Keep lines punchy, concise and short (like a real cinema dubber). Avoid long wordy explanations or unnecessary formal filler words so speech starts and finishes with the actor lips. Example: [ប្រុស] ឈប់ភ្លាម! or [ស្រី] លោកម្ចាស់ ខ្ញុំ...';
 
     let success = false;
     for (let attempt = 1; attempt <= 3; attempt++) {
