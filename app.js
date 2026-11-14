@@ -1992,7 +1992,13 @@ _0x12ca();
 _0x14b7({ hidden: true, disabled: false });
 await _0x140d({ status: 'done', step: 3, pasted, listenChunkIdx: 0, listenSegs: [], segs: _0x13fc(segs), voiceSel: $('voice').value, _0x14fb: 'all' });
 step(3, 'done'); busy(false); confetti();
-setProgress(100, '✓ Done! Playing your Khmer dub…', 'Dubbing Completed'); log('Done! Playing your Khmer dub…' + vnote); await _0x12db();
+plan = await _0x1297();
+dubbing = true;
+v.pause();
+try { v.currentTime = 0; } catch (_) {}
+setProgress(100, '✓ Dubbing complete! Click ▶ Play to watch with sound.', 'Completed');
+log('✓ Dubbing complete! Click ▶ Play on the video or "▶ Replay" to watch with Khmer dubbing.' + vnote);
+toast('✓ Dubbing complete! Click Play to watch');
 } catch (e) { log('⚠ ' + (e.message || 'Something went wrong.')); dubbing = false }
 busy(false);
 if ($('goWrap') && !$('goWrap').hidden) _0x14b7({ disabled: false });
@@ -2103,7 +2109,13 @@ $('genv').textContent = '🔊 Voice'; $('genv').classList.remove('p');
 _0x14b7({ hidden: true, disabled: false });
 await _0x140d({ status: 'done', step: 3, segs: _0x13fc(segs), voiceSel: $('voice').value, _0x14fb: 'all' });
 step(3, 'done'); confetti();
-return _0x12db();
+plan = await _0x1297();
+dubbing = true;
+v.pause();
+try { v.currentTime = 0; } catch (_) {}
+log('✓ Khmer voice ready! Click ▶ Play on the video to watch.');
+toast('✓ Khmer voice ready! Click Play to watch');
+return;
 }
 return log('The device voice needs no generation.');
 }
@@ -2122,8 +2134,12 @@ $('genv').textContent = '🔊 Voice'; $('genv').classList.remove('p');
 _0x14b7({ hidden: true, disabled: false });
 await _0x140d({ status: 'done', step: 3, segs: _0x13fc(segs), voiceSel: $('voice').value, _0x14fb: 'all' });
 step(3, 'done'); busy(false); confetti();
-log('✓ Khmer voice ready! Playing your dub…');
-await _0x12db();
+plan = await _0x1297();
+dubbing = true;
+v.pause();
+try { v.currentTime = 0; } catch (_) {}
+log('✓ Khmer voice ready! Click ▶ Play on the video or "▶ Replay" to watch.');
+toast('✓ Khmer voice ready! Click Play to watch');
 } catch (e) {
 busy(false);
 if ($('goWrap') && !$('goWrap').hidden) _0x14b7({ disabled: false });
