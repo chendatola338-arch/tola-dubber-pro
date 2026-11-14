@@ -169,8 +169,8 @@ function _0x14a6(raw) {
 const s = String(raw || '').trim();
 let g = '';
 const clean = s
-.replace(/^(?:\[(F|Female|Woman|Girl|Sreymom)\]|\((F|Female|Woman|Girl|Sreymom)\)|(?:F|Female|Sreymom)\s*:|[♀👩]\s*)+/i, () => { g = 'f'; return ''; })
-.replace(/^(?:\[(M|Male|Man|Boy|Piseth)\]|\((M|Male|Man|Boy|Piseth)\)|(?:M|Male|Piseth)\s*:|[♂👨]\s*)+/i, () => { if (!g) g = 'm'; return ''; })
+.replace(/^(?:\[(F|Female|Woman|Girl|Sreymom|ស្រី|នារី|ស្រីមុំ)\]|\((F|Female|Woman|Girl|Sreymom|ស្រី|នារី|ស្រីមុំ)\)|(?:F|Female|Sreymom|ស្រី|នារី|ស្រីមុំ)\s*[:៖\-]|[♀👩]\s*)+/i, () => { g = 'f'; return ''; })
+.replace(/^(?:\[(M|Male|Man|Boy|Piseth|ប្រុស|បុរស|ពិសិដ្ឋ)\]|\((M|Male|Man|Boy|Piseth|ប្រុស|បុរស|ពិសិដ្ឋ)\)|(?:M|Male|Piseth|ប្រុស|បុរស|ពិសិដ្ឋ)\s*[:៖\-]|[♂👨]\s*)+/i, () => { if (!g) g = 'm'; return ''; })
 .trim();
 return { g, text: clean };
 }
@@ -717,7 +717,7 @@ const todo = need.filter(i => !segs[i].km); if (!todo.length) break;
 const stepSz = pass < 2 ? 15 : 5;
 for (let p = 0; p < todo.length; p += stepSz) {
 const ids = todo.slice(p, p + stepSz);
-const prompt = 'Translate each line into natural, spoken Khmer (ភាសាខ្មែរ) for video dubbing: concise, conversational, keep names. Also infer speaker gender ("m" for male or "f" for female) when clear from dialogue/context. Return ONLY a JSON array with exactly one object {"i":id,"g":"m"|"f","km":"Khmer text"} per input line, using the same i. Never skip a line.\n' + JSON.stringify(ids.map(i => ({ i, g: segs[i].g || '', text: segs[i].text })));
+const prompt = 'Translate each line into natural, spoken Khmer (ភាសាខ្មែរ) for video dubbing: concise, conversational, keep names. Also infer speaker gender ("m" for male or "f" for female) based on who is TALKING (not who is being addressed). When addressing a female (e.g. 姑娘/小姐/夫人), speaker is male ("m"). When addressing a male (e.g. 少爷/王爷/陛下/哥), speaker is female ("f"). Self-pronouns: 朕/本王/本少爷/老子 = "m"; 臣妾/本宫/小女/妾身 = "f". Return ONLY a JSON array with exactly one object {"i":id,"g":"m"|"f","km":"Khmer text"} per input line, using the same i. Never skip a line.\n' + JSON.stringify(ids.map(i => ({ i, g: segs[i].g || '', text: segs[i].text })));
 try {
 const a = await gem([{ text: prompt }], { rounds: 6 });
 (Array.isArray(a) ? a : []).forEach(o => {
@@ -1531,6 +1531,7 @@ if (spkBar && spkList) {
       swapBtn.onclick = () => {
         segs.forEach(s => {
           s.g = (s.g === 'f') ? 'm' : 'f';
+          s.speaker = (s.g === 'f') ? 'S1 (តួស្រី)' : 'S0 (តួប្រុស)';
           s.audio = null;
         });
         _0x1440();
@@ -1548,25 +1549,26 @@ const row = document.createElement('div');
 row.className = 'srow' + (!s.audio && _dubState.status === 'done' ? ' dirty' : '');
 const spkTag = document.createElement('span');
 spkTag.className = 'tag';
-spkTag.style.cssText = 'font-size:10.5px;padding:2px 7px;font-weight:700;color:var(--acc);background:var(--soft);border-radius:6px;flex:none;';
-spkTag.textContent = s.speaker || 'S0';
 const ts = document.createElement('button');
 ts.type = 'button'; ts.className = 'tsbtn';
 ts.textContent = fmt(s.t).slice(3, 8);
 ts.title = 'Jump video to ' + fmt(s.t).slice(3, 8);
 ts.onclick = () => { v.currentTime = s.t };
 const gb = document.createElement('button');
-gb.type = 'button'; gb.className = 'gbtn ' + (s.g === 'f' ? 'f' : 'm');
+gb.type = 'button';
 const paintG = () => {
-gb.className = 'gbtn ' + (s.g === 'f' ? 'f' : 'm');
-gb.textContent = s.g === 'f' ? '♀ Sreymom' : '♂ Piseth';
-gb.title = 'Click to switch voice between ♂ Piseth and ♀ Sreymom';
+  gb.className = 'gbtn ' + (s.g === 'f' ? 'f' : 'm');
+  gb.textContent = s.g === 'f' ? '♀ Sreymom' : '♂ Piseth';
+  gb.title = 'Click to switch voice between ♂ Piseth and ♀ Sreymom';
+  spkTag.textContent = s.g === 'f' ? 'S1 ♀' : 'S0 ♂';
+  spkTag.style.cssText = 'font-size:10.5px;padding:2px 7px;font-weight:700;border-radius:6px;flex:none;' + (s.g === 'f' ? 'color:#f43f5e;background:rgba(244,63,94,0.15);border:1px solid rgba(244,63,94,0.3);' : 'color:#38bdf8;background:rgba(56,189,248,0.15);border:1px solid rgba(56,189,248,0.3);');
 };
 paintG();
 gb.onclick = () => {
-s.g = s.g === 'f' ? 'm' : 'f';
-paintG();
-_0x14d9(i, row);
+  s.g = s.g === 'f' ? 'm' : 'f';
+  s.speaker = s.g === 'f' ? 'S1 (តួស្រី)' : 'S0 (តួប្រុស)';
+  paintG();
+  _0x14d9(i, row);
 };
 const ed = document.createElement('textarea');
 ed.className = 'km-ed';
@@ -1779,6 +1781,32 @@ async function listenNisay(resumed) {
   return cleanOut;
 }
 
+function inferDramaGender(origText, kmText) {
+  const all = (origText || '') + ' ' + (kmText || '');
+  
+  // 1. High-confidence Female Self-pronouns (Speaker is definitely female)
+  if (/(?:臣妾|本宫|妾身|小女|奴婢|奴家|为妻|为母)/.test(all) || /(?:ខ្ញុំជាស្រី|ខ្ញុំម្ចាស់ជាស្រី|ខ្ញុំជាកូនស្រី)/.test(all)) {
+    return 'f';
+  }
+  
+  // 2. High-confidence Male Self-pronouns (Speaker is definitely male)
+  if (/(?:朕|本王|本少爷|老子|微臣|末将|贫僧|为夫|为父|老夫)/.test(all) || /(?:ខ្ញុំជាបុរស|ខ្ញុំជាប្រុស|ខ្ញុំជាកូនប្រុស)/.test(all)) {
+    return 'm';
+  }
+
+  // 3. Vocatives addressing a Female -> Speaker is MALE
+  if (/(?:姑娘|小姐|夫人|娘子|老婆|妹妹|表妹|师妹|爱妃|丫头|美女)/.test(all) || /(?:អ្នកនាង|អូនសម្លាញ់|ប្រពន្ធសម្លាញ់|ប្អូនស្រី|កញ្ញា|នាងតូច)/.test(all)) {
+    return 'm';
+  }
+
+  // 4. Vocatives addressing a Male -> Speaker is FEMALE
+  if (/(?:夫君|相公|少爷|公子|王爷|陛下|皇上|哥哥|表哥|师兄|老公)/.test(all) || /(?:លោកប្ដី|បងសម្លាញ់|បងប្រុស|លោកម្ចាស់|ព្រះស្វាមី|ព្រះអង្គ)/.test(all)) {
+    return 'f';
+  }
+
+  return null;
+}
+
 async function translateNisay() {
   const nisayKey = getNisayKey();
   if (!nisayKey) throw new Error('Please enter your NISAY API Key in the Providers tab.');
@@ -1791,17 +1819,24 @@ async function translateNisay() {
   if (!total) return;
 
   log('NISAY AI is analyzing characters & translating ' + total + ' lines...');
-  const batchSize = 30; // Faster batches
+  const batchSize = 25; // Balanced batch size for prompt context retention
   let done = 0;
 
   for (let p = 0; p < total; p += batchSize) {
     const ids = need.slice(p, p + batchSize);
-    // Send clean texts directly without artificial number prefixes
     const batchTexts = ids.map(i => segs[i].text);
 
     const pct = 45 + Math.round((done / total) * 30);
     setProgress(pct, 'Translating & detecting character genders (' + done + '/' + total + ')...', 'NISAY Translating');
     log('Translating with NISAY gpt-5.6-luna [' + category + ']… ' + done + '/' + total);
+
+    const dramaDubContext = 'DRAMA DUBBING CHARACTER CONTEXT (' + category + '): This is a conversation between characters in a drama. Analyze dialogue flow and character interactions. ' +
+      'CRITICAL SPEAKER GENDER RULES: Prefix EVERY translated line with [ប្រុស] if spoken by a male character, or [ស្រី] if spoken by a female character. ' +
+      'IMPORTANT: Identify who is TALKING, NOT who is being addressed! ' +
+      '1. When a character addresses a female (e.g. 姑娘/小姐/夫人/娘子/妹妹/她/អ្នកនាង/កញ្ញា), the SPEAKER IS MALE -> prefix [ប្រុស]. ' +
+      '2. When a character addresses a male (e.g. 少爷/王爷/公子/陛下/皇上/夫君/相公/哥/他/លោកម្ចាស់/ព្រះអង្គ), the SPEAKER IS FEMALE -> prefix [ស្រី]. ' +
+      '3. Self-pronouns: 本少爷/朕/本王/微臣/老子/末将/为夫 = [ប្រុស]; 臣妾/本宫/小女/妾身/奴婢/奴家/为妻 = [ស្រី]. ' +
+      '4. Keep translations natural, conversational and punchy for lip-sync. Example: [ប្រុស] ឈប់ភ្លាម! or [ស្រី] លោកម្ចាស់ ខ្ញុំ...';
 
     let success = false;
     for (let attempt = 1; attempt <= 3; attempt++) {
@@ -1818,7 +1853,7 @@ async function translateNisay() {
             target_lang: 'km',
             model: 'gpt-5.6-luna',
             category: category,
-            context: 'Story genre: ' + category + '. Video dubbing mode: For each line, analyze the speaker context. Prefix each line with [ស្រី] if spoken by a female character, or [ប្រុស] if spoken by a male character. Example: [ស្រី] ខ្ញុំ... or [ប្រុស] ខ្ញុំ... Keep translations concise and punchy for lip-sync.'
+            context: dramaDubContext
           })
         });
 
@@ -1844,25 +1879,30 @@ async function translateNisay() {
             rawText = rawText.replace(/^(\d+|[០-៩]+)\s*[\.\:\-\)\]\s]\s*/, '').trim();
 
             let detectedGender = '';
-            // Check for [ស្រី] or [ប្រុស] tag
-            if (/^\[?\s*(ស្រី|នារី|ស្រីមុំ|Female|Woman|Girl|F)\s*\]?[\s:៖\-]/i.test(rawText) || rawText.startsWith('[ស្រី]')) {
+            // Comprehensive tag extraction regex
+            const isF = /^(?:\[(ស្រី|នារី|ស្រីមុំ|Female|Woman|Girl|F)\]|\((ស្រី|នារី|ស្រីមុំ|Female|Woman|Girl|F)\)|(?:ស្រី|នារី|ស្រីមុំ|Female|Woman|Girl|F)\s*[:៖\-]|(?:ស្រី|នារី)\s+)[\s:៖\-]*/i.test(rawText);
+            const isM = /^(?:\[(ប្រុស|បុរស|ពិសិដ្ឋ|Male|Man|Boy|M)\]|\((ប្រុស|បុរស|ពិសិដ្ឋ|Male|Man|Boy|M)\)|(?:ប្រុស|បុរស|ពិសិដ្ឋ|Male|Man|Boy|M)\s*[:៖\-]|(?:ប្រុស|បុរស)\s+)[\s:៖\-]*/i.test(rawText);
+
+            if (isF && !isM) {
               detectedGender = 'f';
-            } else if (/^\[?\s*(ប្រុស|បុរស|ពិសិដ្ឋ|Male|Man|Boy|M)\s*\]?[\s:៖\-]/i.test(rawText) || rawText.startsWith('[ប្រុស]')) {
+              rawText = rawText.replace(/^(?:\[(ស្រី|នារី|ស្រីមុំ|Female|Woman|Girl|F)\]|\((ស្រី|នារី|ស្រីមុំ|Female|Woman|Girl|F)\)|(?:ស្រី|នារី|ស្រីមុំ|Female|Woman|Girl|F)\s*[:៖\-]|(?:ស្រី|នារី)\s+)[\s:៖\-]*/i, '').trim();
+            } else if (isM) {
               detectedGender = 'm';
+              rawText = rawText.replace(/^(?:\[(ប្រុស|បុរស|ពិសិដ្ឋ|Male|Man|Boy|M)\]|\((ប្រុស|បុរស|ពិសិដ្ឋ|Male|Man|Boy|M)\)|(?:ប្រុស|បុរស|ពិសិដ្ឋ|Male|Man|Boy|M)\s*[:៖\-]|(?:ប្រុស|បុរស)\s+)[\s:៖\-]*/i, '').trim();
             }
 
-            // Strip the prefix from the start of the string
-            rawText = rawText.replace(/^\[?\s*(ស្រី|នារី|ស្រីមុំ|ប្រុស|បុរស|ពិសិដ្ឋ|Female|Male|F|M)\s*\]?[\s:៖\-]*/i, '').trim();
-
-            // Fallback keyword check if AI did not provide prefix
+            // Fallback drama contextual check if AI omitted prefix
             if (!detectedGender) {
               const orig = segs[segIdx].text || '';
-              if (/[她娘妈妹姐姑妇妾妃后丫婆女]|姑娘|姐姐|妹妹|妈妈|母亲|夫人|皇后|公主|娘娘|贵妃|丫鬟|丫头|臣妾|本宫|贱妾|小女|妾身|媳妇|婆婆|姑姑|阿姨|婶婶|女侠|小姐|នាង|អ្នកនាង|ម៉ាក់|ម្ដាយ|បងស្រី|ប្អូនស្រី|អ្នកស្រី|លោកស្រី|ព្រះនាង|មហេសី|ម៉ែ|យាយ|កញ្ញា|នារី|ស្រី/.test(orig + ' ' + rawText)) {
-                detectedGender = 'f';
-              } else if (/[他爹爸哥弟]|皇上|陛下|王爷|老子|本王|朕|微臣|贫僧|兄弟|儿子|老公|岳父|老爹|丈夫|将军|师兄|大侠|大人|官人|小的|លោក|គាត់|បងប្រុស|ប្អូនប្រុស|ប៉ា|ឪពុក|ព្រះអង្គ|ស្ដេច|លោកម្ចាស់|តា|ប្ដី|ប្រុស|មេទ័ព|ក្សត្រ|ចៅហ្វាយ/.test(orig + ' ' + rawText)) {
-                detectedGender = 'm';
+              const inferred = inferDramaGender(orig, rawText);
+              if (inferred) {
+                detectedGender = inferred;
+              } else if (segs[segIdx].pitch > 0) {
+                detectedGender = segs[segIdx].pitch > 175 ? 'f' : 'm';
               } else {
-                detectedGender = (segs[segIdx].speaker === 'S1') ? 'f' : 'm';
+                // If previous line was m and this looks responsive, alternate or keep speaker
+                const prev = segs[segIdx - 1];
+                detectedGender = (prev && prev.g === 'm') ? 'f' : 'm';
               }
             }
 
@@ -1881,6 +1921,13 @@ async function translateNisay() {
     done += ids.length;
     await _0x140d({ status: 'running', step: 2, segs: _0x13fc(segs) });
   }
+
+  // Assign distinct speaker labels for UI
+  segs.forEach((s) => {
+    if (!s.speaker || s.speaker === 'S0' || s.speaker === 'S1') {
+      s.speaker = (s.g === 'f') ? 'S1 (តួស្រី)' : 'S0 (តួប្រុស)';
+    }
+  });
 
   // Count detected roles
   let fCount = segs.filter(s => s.g === 'f').length;
