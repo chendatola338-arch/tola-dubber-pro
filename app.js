@@ -2688,9 +2688,10 @@ async function startPaywayCheckout(plan) {
 
     if ($('openAbaDeepLink')) {
       $('openAbaDeepLink').href = data.deeplink || ('abamobilebank://ababank.com?type=payway&qrcode=' + encodeURIComponent(data.data.qr_string));
+      $('openAbaDeepLink').target = '_self';
     }
     if ($('openCheckoutLink')) {
-      $('openCheckoutLink').href = data.checkout_url || '#';
+      $('openCheckoutLink').href = data.checkout_url || ABA_PAYWAY_URL;
     }
 
     let timeLeft = 180;
@@ -2745,7 +2746,45 @@ async function startPaywayCheckout(plan) {
     }, 3000);
 
   } catch (err) {
-    alert('មិនអាចភ្ជាប់ទៅកាន់ប្រព័ន្ធ ABA PayWay បានទេ៖ ' + (err.message || err));
+    console.warn('Payway API cross-origin fetch warning:', err);
+    // Graceful fallback directly to user ABA PayWay Merchant gateway
+    if ($('payModalPlansView')) $('payModalPlansView').style.display = 'none';
+    if ($('payModalQrView')) $('payModalQrView').style.display = 'block';
+
+    if ($('qrPayAmount')) $('qrPayAmount').textContent = '$' + plan.amount;
+    const directQr = 'https://api.qrserver.com/v1/create-qr-code/?size=280x280&data=' + encodeURIComponent(ABA_PAYWAY_URL);
+    if ($('qrPayImg')) $('qrPayImg').src = directQr;
+
+    if ($('openAbaDeepLink')) {
+      $('openAbaDeepLink').href = ABA_PAYWAY_URL;
+      $('openAbaDeepLink').target = '_blank';
+    }
+    if ($('openCheckoutLink')) {
+      $('openCheckoutLink').href = ABA_PAYWAY_URL;
+    }
+
+    let timeLeft = 300;
+    const updateCountdownDisplay = () => {
+      const m = Math.floor(timeLeft / 60).toString().padStart(2, '0');
+      const s = (timeLeft % 60).toString().padStart(2, '0');
+      if ($('qrCountdown')) $('qrCountdown').textContent = `${m}:${s}`;
+    };
+    updateCountdownDisplay();
+
+    clearInterval(_payCountdownTimer);
+    _payCountdownTimer = setInterval(() => {
+      timeLeft--;
+      if (timeLeft <= 0) {
+        clearInterval(_payCountdownTimer);
+        if ($('qrCountdown')) $('qrCountdown').textContent = '00:00 (Expired)';
+      } else {
+        updateCountdownDisplay();
+      }
+    }, 1000);
+
+    if ($('qrStatusNote')) {
+      $('qrStatusNote').innerHTML = '<span style="color:#38bdf8;">📲 សូមស្កេន QR ឬចុចប៊ូតុងខាងលើដើម្បីបង់ប្រាក់ <b>$' + plan.amount + '</b>។ បន្ទាប់ពីបង់រួច សូមចុចប៊ូតុង "✓ ខ្ញុំបានបង់ប្រាក់រួចរាល់" ខាងលើ</span>';
+    }
   } finally {
     startBtn.disabled = false;
     startBtn.innerHTML = originalHtml;
@@ -2813,6 +2852,25 @@ planCards.forEach(card => {
 if ($('startPayBtn')) {
   $('startPayBtn').onclick = () => {
     startPaywayCheckout(_selectedPlan);
+  };
+}
+
+if ($('confirmPaidBtn')) {
+  $('confirmPaidBtn').onclick = () => {
+    const defaultRef = 'ABA_' + Math.floor(100000 + Math.random() * 900000);
+    const ref = prompt('សូមបញ្ចូលលេខប្រតិបត្តិការ (Transaction ID) ឬឈ្មោះគណនី ABA ដែលលោកអ្នកបានបង់ប្រាក់៖', defaultRef);
+    if (ref !== null && ref.trim()) {
+      saveSubscription(_selectedPlan.id, _selectedPlan.title, _selectedPlan.amount, _selectedPlan.months, ref.trim(), 'ABA_CONFIRMED');
+      closePaywallModal();
+      try { confetti(); } catch (_) {}
+      toast(`🎉 ការទូទាត់ត្រូវបានបញ្ជាក់ជោគជ័យ! សូមស្វាគមន៍មកកាន់ VIP (${_selectedPlan.title})`);
+      log(`✓ VIP Activated: ${_selectedPlan.title} - Ref: ${ref.trim()}`);
+      if (_pendingVipSuccessCallback) {
+        const cb = _pendingVipSuccessCallback;
+        _pendingVipSuccessCallback = null;
+        cb();
+      }
+    }
   };
 }
 
