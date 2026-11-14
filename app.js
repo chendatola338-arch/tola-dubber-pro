@@ -1687,64 +1687,81 @@ async function listenNisay(resumed) {
   const nisayKey = getNisayKey();
   if (!nisayKey) throw new Error('Please enter your NISAY API Key in the Providers tab.');
 
-  setProgress(20, 'Sending media to NISAY Gateway (model: nisay-transcribe)...', 'NISAY Transcribing');
+  setProgress(10, 'Extracting 16kHz audio for speech recognition & character pitch...', 'Extracting Audio');
+  log('Extracting audio track from video…');
+
+  let uploadFile = curFile;
+  let uploadName = curFile.name || 'video.mp4';
+  try {
+    const a = await _0x1165();
+    const pcmList = [];
+    for (let k = 0; k < a.total; k++) {
+      pcmList.push(await a.getPcm(k));
+      setProgress(10 + Math.round(((k + 1) / a.total) * 12), 'Extracting audio: ' + Math.round(((k + 1) / a.total) * 100) + '%', 'Extracting Audio');
+    }
+    const totalLen = pcmList.reduce((acc, c) => acc + c.length, 0);
+    const merged = new Float32Array(totalLen);
+    let offset = 0;
+    for (const p of pcmList) {
+      merged.set(p, offset);
+      offset += p.length;
+    }
+    _cachedPcm = merged;
+    const wavBuf = wav(merged);
+    uploadFile = new File([wavBuf], 'audio.wav', { type: 'audio/wav' });
+    uploadName = 'audio.wav';
+    blog('✓ Lightweight audio ready: ' + (merged.length / 16000).toFixed(1) + 's (' + (uploadFile.size / 1024 / 1024).toFixed(2) + ' MB WAV)', 'k');
+  } catch (err) {
+    blog('⚠ Audio extraction fallback: using original video file (' + (err.message || err) + ')', 'w');
+    uploadFile = curFile;
+    uploadName = curFile.name || 'video.mp4';
+  }
+
+  setProgress(25, 'Sending audio to NISAY Gateway (model: nisay-transcribe)...', 'NISAY Transcribing');
   log('NISAY Transcribe is extracting exact millisecond timestamps and speech cues…');
 
   const form = new FormData();
-  form.append('file', curFile, (curFile.name || 'video.mp4'));
+  form.append('file', uploadFile, uploadName);
   form.append('model', 'nisay-transcribe');
   form.append('language', 'auto');
   form.append('response_format', 'verbose_json');
   form.append('prompt', 'Transcribe verbatim with millisecond timestamps and neutral speaker IDs.');
 
   const t0 = performance.now();
+  let resp = null;
+  let lastErr = null;
 
-  // Extract audio waveform in background for local pitch analysis in parallel with network transcribe
-  const pcmPromise = (async () => {
+  for (let attempt = 1; attempt <= 2; attempt++) {
     try {
-      const a = await _0x1165();
-      const pcmList = [];
-      for (let k = 0; k < a.total; k++) {
-        pcmList.push(await a.getPcm(k));
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 75000);
+      resp = await fetch('https://api.nisay.store/v1/audio/transcriptions', {
+        method: 'POST',
+        headers: {
+          'Authorization': 'Bearer ' + nisayKey
+        },
+        body: form,
+        signal: controller.signal
+      });
+      clearTimeout(timeoutId);
+      if (resp.ok || resp.status === 422 || resp.status === 403) break;
+      if (attempt === 1) {
+        blog('⚠ Network retry 1/2…', 'w');
+        await sleep(1000);
       }
-      const totalLen = pcmList.reduce((acc, c) => acc + c.length, 0);
-      const merged = new Float32Array(totalLen);
-      let offset = 0;
-      for (const p of pcmList) {
-        merged.set(p, offset);
-        offset += p.length;
-      }
-      _cachedPcm = merged;
-      blog('✓ Audio pitch waveform analyzed in parallel: ' + (merged.length / 16000).toFixed(1) + 's 16kHz audio', 'k');
     } catch (err) {
-      blog('⚠ Audio pitch extraction notice: ' + (err.message || err), 'w');
+      lastErr = err;
+      if (err.name === 'AbortError') {
+        lastErr = new Error('NISAY Transcribe timed out (75s). Please check your internet connection and try again.');
+      }
+      if (attempt === 1) {
+        blog('⚠ Network reconnecting 1/2…', 'w');
+        await sleep(1500);
+      }
     }
-  })();
-
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 90000);
-
-  let resp;
-  try {
-    resp = await fetch('https://api.nisay.store/v1/audio/transcriptions', {
-      method: 'POST',
-      headers: {
-        'Authorization': 'Bearer ' + nisayKey
-      },
-      body: form,
-      signal: controller.signal
-    });
-  } catch (err) {
-    if (err.name === 'AbortError') {
-      throw new Error('NISAY Transcribe timed out (90s). Please check your internet connection and try again.');
-    }
-    throw err;
-  } finally {
-    clearTimeout(timeoutId);
   }
 
-  // Ensure PCM waveform extraction is finished
-  await pcmPromise;
+  if (!resp) throw (lastErr || new Error('Connection failed. Please check your internet connection.'));
 
   const elapsed = ((performance.now() - t0) / 1000).toFixed(1);
   if (resp.status === 403) throw new Error('NISAY 403 Forbidden: API Key expired or invalid. Please check https://api.nisay.store');
