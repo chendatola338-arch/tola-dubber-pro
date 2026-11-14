@@ -156,7 +156,7 @@ $('file').onchange = e => load(e.target.files[0]);
 function load(f, isRestore) {
 if (!f || !((f.type || '').startsWith('video/') || /\.(mp4|mov|m4v|webm|mkv|3gp|avi)$/i.test(f.name || ''))) return log('Please choose a video file.');
 _0x12b9(); dubbing = false; plan = []; played = new Set(); spoken = new Set(); _0x1473++;
-curFile = f; ENV = null; v.src = URL.createObjectURL(f); $('stage').hidden = false; $('dropTxt').textContent = '✓ ' + (f.name || 'Saved video') + ' · click to change';
+curFile = f; ENV = null; v.src = URL.createObjectURL(f); v.muted = ($('vol').value === '0'); v.volume = $('vol').value / 100; $('stage').hidden = false; $('dropTxt').textContent = '✓ ' + (f.name || 'Saved video') + ' · click to change';
 _0x14b7({ hidden: false, disabled: false }); segs = []; $('resCard').hidden = true; if ($('editHint')) $('editHint').hidden = true; $('cap').textContent = ''; log('');
 ['s1', 's2', 's3'].forEach(i => $(i).className = 's'); $('bar').style.width = '0%';
 if (!isRestore) {
@@ -825,7 +825,7 @@ const gen = async i => {
 const txt = _0x1176(segs[i].km), voice = _0x14ea(segs[i]);
 for (const sz of [140, 60, 28]) {
 try {
-await _0x141e(i, await _0x11cb(base, txt, voice, undefined, sz));
+await _0x141e(i, await _0x11cb(base, txt, voice, '+0%', sz));
 return;
 } catch (e) {
 if (sz === 28) throw e;
@@ -1018,9 +1018,10 @@ if (s.dur <= base + 0.15) {
 sp = 1;
 } else if (s.dur <= slot) {
 const ratio = s.dur / base;
-sp = ratio > 1.25 ? Math.min(1.2, ratio) : 1;
+sp = ratio > 1.15 ? Math.min(1.12, ratio) : 1;
 } else {
-sp = Math.min(1.85, s.dur / Math.max(0.35, untilNext));
+// Balanced natural pace: never rushed (max 1.16x) and never dragged (min 0.98x)
+sp = Math.min(1.16, Math.max(0.98, s.dur / Math.max(0.45, untilNext)));
 }
 if (sp > 1.03) {
 const key = sp.toFixed(3);
@@ -1073,7 +1074,7 @@ plan = await _0x1297();
 if (gen !== _0x1473) return;
 const have = segs.filter(x => x.km && x.km.trim() && !x.skip).length;
 blog('Voice plan: ' + plan.length + ' of ' + have + ' lines have audio' + (plan.length < have ? ' (press 🔊 Voice to fill the missing ones)' : ''), plan.length < have ? 'w' : 'k');
-v.muted = false; v.volume = $('vol').value / 100;
+v.muted = ($('vol').value === '0'); v.volume = $('vol').value / 100;
 if (Math.abs(v.currentTime) > 0.05 || v.ended) {
 await new Promise(res => {
 let done = false;
@@ -1144,7 +1145,23 @@ if (v.currentTime < 0.05) spoken = new Set();
 played = new Set();
 });
 v.addEventListener('ended', () => { if (segs.length && segs[0].km) { _0x12b9(); v.playbackRate = 1 } });
-$('vol').oninput = () => { if (dubbing && segs[0] && segs[0].km) v.volume = $('vol').value / 100 };
+
+$('vol').oninput = () => {
+  const val = +$('vol').value;
+  v.muted = (val === 0);
+  v.volume = val / 100;
+  const lbl = $('volLabel');
+  if (lbl) {
+    if (val === 0) {
+      lbl.textContent = 'Muted (បិទសំឡេងដើម 0%)';
+      lbl.style.color = '#f87171';
+    } else {
+      lbl.textContent = val + '%';
+      lbl.style.color = 'var(--acc)';
+    }
+  }
+};
+
 let _mb = null;
 const _0x12ec = () => _mb || (_mb = (async () => {
 const urls = [
@@ -1698,9 +1715,6 @@ async function translateNisay() {
           const segIdx = ids[idx];
           if (segIdx !== undefined && segs[segIdx]) {
             segs[segIdx].km = String(item.text || '').trim();
-            if (segs[segIdx].speaker === 'S1' || /^(នាង|ម៉ាក់|ម្ដាយ|ប្អូនស្រី|អ្នកនាង|ព្រះនាង|កញ្ញា)/.test(segs[segIdx].km)) {
-              segs[segIdx].g = 'f';
-            }
           }
         });
         success = true;
@@ -1722,7 +1736,54 @@ async function translateNisay() {
   setProgress(75, 'All ' + total + ' lines translated to Khmer', 'Translate Complete');
   log('✓ NISAY Translation complete: ' + total + ' lines translated.');
 
-  segs.forEach(s => { if (s.g !== 'f') s.g = 'm'; });
+  // --- Smart Character Gender Detection Engine ---
+  function scoreGender(orig, km) {
+    orig = String(orig || '');
+    km = String(km || '');
+    let f = 0, m = 0;
+    // Chinese female character indicators
+    if (/她|姑娘|姐姐|妹妹|妈妈|母亲|夫人|皇后|公主|娘娘|贵妃|丫鬟|丫头|臣妾|本宫|贱妾|小女|妾身|媳妇|婆婆|姑姑|阿姨|婶婶|女侠|小姐/.test(orig)) f += 3;
+    if (/夫君|相公|哥哥|表哥|师兄|公子|少爷|王爷|陛下|殿下|皇上/.test(orig) && !/本王|朕|微臣/.test(orig)) f += 2;
+    // Chinese male character indicators
+    if (/他|爹|爸|哥|弟|皇上|陛下|王爷|老子|本王|朕|微臣|贫僧|兄弟|儿子|老公|岳父|老爹|丈夫|将军|师兄|大侠|大人|官人|小的/.test(orig)) m += 3;
+    if (/娘子|夫人|爱妃|妹妹|表妹|师妹|丫头/.test(orig) && !/本宫|臣妾/.test(orig)) m += 2;
+    // Khmer dialogue indicators
+    if (/នាង|អ្នកនាង|ម៉ាក់|ម្ដាយ|បងស្រី|ប្អូនស្រី|អ្នកស្រី|លោកស្រី|ព្រះនាង|មហេសី|ម៉ែ|យាយ|កញ្ញា|នារី|ស្រី/.test(km)) f += 3;
+    if (/លោក|គាត់|បងប្រុស|ប្អូនប្រុស|ប៉ា|ឪពុក|ព្រះអង្គ|ស្ដេច|លោកម្ចាស់|តា|ប្ដី|ប្រុស|មេទ័ព|ក្សត្រ|ចៅហ្វាយ/.test(km)) m += 3;
+    return { f, m };
+  }
+
+  // Aggregate speaker character clusters (S0, S1, S2...)
+  const speakerScores = {};
+  segs.forEach(s => {
+    const spk = s.speaker || 'S0';
+    if (!speakerScores[spk]) speakerScores[spk] = { f: 0, m: 0 };
+    const sc = scoreGender(s.text, s.km);
+    speakerScores[spk].f += sc.f;
+    speakerScores[spk].m += sc.m;
+  });
+
+  // Assign accurate character voice (Piseth vs Sreymom)
+  let fCount = 0, mCount = 0;
+  segs.forEach(s => {
+    const spk = s.speaker || 'S0';
+    const cluster = speakerScores[spk] || { f: 0, m: 0 };
+    const sc = scoreGender(s.text, s.km);
+    if (sc.f > sc.m + 1) {
+      s.g = 'f';
+    } else if (sc.m > sc.f + 1) {
+      s.g = 'm';
+    } else if (cluster.f > cluster.m) {
+      s.g = 'f';
+    } else if (cluster.m > cluster.f) {
+      s.g = 'm';
+    } else {
+      s.g = (spk === 'S1' || spk === 'S3') ? 'f' : 'm';
+    }
+    if (s.g === 'f') fCount++; else mCount++;
+  });
+
+  blog('Character voice detection: ' + mCount + ' Piseth (♂ Male) cues, ' + fCount + ' Sreymom (♀ Female) cues.', 'k');
   segs = segs.filter(s => s.km && s.km.trim());
 }
 
