@@ -2724,6 +2724,25 @@ function openPaywallModal(onSuccess) {
       if ($('activeSubTitle')) $('activeSubTitle').textContent = `👑 កំពុងប្រើប្រាស់៖ ${sub.plan_title}`;
       if ($('activeSubExpiry')) $('activeSubExpiry').textContent = `📅 ផុតកំណត់នៅ៖ ${expDateStr}`;
       if ($('activeSubDaysBadge')) $('activeSubDaysBadge').textContent = `នៅសល់ ${daysLeft} ថ្ងៃ`;
+      if ($('copyVipSyncLinkBtn')) {
+        $('copyVipSyncLinkBtn').onclick = () => {
+          try {
+            const token = btoa(unescape(encodeURIComponent(JSON.stringify(sub))));
+            const syncUrl = window.location.origin + window.location.pathname + '?vip_sync=' + encodeURIComponent(token);
+            if (navigator.clipboard && navigator.clipboard.writeText) {
+              navigator.clipboard.writeText(syncUrl).then(() => {
+                toast('✓ បានចម្លង Link VIP! សូមយកទៅបើកក្នុង Safari/Chrome');
+              }).catch(() => {
+                prompt('សូមចម្លង (Copy) Link VIP នេះដើម្បីយកទៅបើកក្នុង Safari:', syncUrl);
+              });
+            } else {
+              prompt('សូមចម្លង (Copy) Link VIP នេះដើម្បីយកទៅបើកក្នុង Safari:', syncUrl);
+            }
+          } catch (e) {
+            toast('✕ មិនអាចបង្កើត Link Sync បានទេ');
+          }
+        };
+      }
     }
     toast(`👑 លោកអ្នកជាសមាជិក VIP រួចហើយ (${daysLeft} ថ្ងៃនៅសល់)`);
   } else {
@@ -3060,6 +3079,23 @@ function handleVipCodeActivation(code) {
 function checkUrlPaymentCallback() {
   try {
     const params = new URLSearchParams(window.location.search);
+    const vipSync = params.get('vip_sync');
+    if (vipSync) {
+      try {
+        const subData = JSON.parse(decodeURIComponent(escape(atob(decodeURIComponent(vipSync)))));
+        if (subData && subData.expires_at && subData.expires_at > Date.now()) {
+          localStorage.setItem(VIP_STORAGE_KEY, JSON.stringify(subData));
+          updateVipBadgeUI();
+          try { confetti(); } catch (_) {}
+          toast(`🎉 សមាជិកភាព VIP (${subData.plan_title || ''}) ត្រូវបាន Sync ជោគជ័យ!`);
+          window.history.replaceState({}, document.title, window.location.pathname);
+          return;
+        }
+      } catch (e) {
+        console.error('VIP sync error:', e);
+      }
+    }
+
     if (params.get('paid') === 'success') {
       const tranId = params.get('tran_id') || ('TOLA_RETURN_' + Date.now());
       const months = parseInt(params.get('months') || '2', 10);
