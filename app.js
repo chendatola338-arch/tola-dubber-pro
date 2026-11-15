@@ -2891,6 +2891,24 @@ if ($('applyVipCodeBtn') && $('vipCodeInput')) {
   };
 }
 
+if ($('proxyUrlInput')) {
+  $('proxyUrlInput').value = localStorage.getItem('tola_payway_proxy_url') || '';
+}
+
+if ($('saveProxyUrlBtn') && $('proxyUrlInput')) {
+  $('saveProxyUrlBtn').onclick = () => {
+    const val = $('proxyUrlInput').value.trim();
+    if (val) {
+      localStorage.setItem('tola_payway_proxy_url', val);
+      toast('✓ បានរក្សាទុក Cloudflare Worker Proxy រួចរាល់!');
+      log('✓ Cloudflare Worker Proxy updated: ' + val);
+    } else {
+      localStorage.removeItem('tola_payway_proxy_url');
+      toast('✓ បានលុប Worker Proxy (ប្រើ PayWay Direct)');
+    }
+  };
+}
+
 if ($('vipBtn')) {
   $('vipBtn').onclick = () => openPaywallModal();
 }

@@ -627,13 +627,22 @@ Hello everyone, welcome back.">
           💳 បង់ប្រាក់ឥឡូវនេះតាម ABA PayWay / KHQR ($8.99)
         </button>
 
-        <!-- Activation Code Alternative -->
+        <!-- Activation Code & Worker Proxy -->
         <div style="margin-top:18px;padding-top:14px;border-top:1px solid var(--line);text-align:center;">
           <div style="font-size:11.5px;color:var(--dim);margin-bottom:8px;">តើលោកអ្នកមាន VIP Activation Code មែនទេ?</div>
-          <div style="display:flex;gap:6px;max-width:320px;margin:0 auto;">
+          <div style="display:flex;gap:6px;max-width:320px;margin:0 auto 12px;">
             <input type="text" id="vipCodeInput" placeholder="បញ្ចូល VIP Code..." style="flex:1;padding:8px 12px;border-radius:8px;border:1px solid var(--line);background:var(--card2);color:var(--ink);font-size:12px;text-transform:uppercase;" />
             <button type="button" id="applyVipCodeBtn" style="padding:8px 14px;border-radius:8px;border:none;background:var(--acc);color:#fff;font-size:12px;font-weight:700;cursor:pointer;">Activate</button>
           </div>
+
+          <details style="max-width:320px;margin:0 auto;text-align:left;font-size:11.5px;color:var(--dim);">
+            <summary style="cursor:pointer;color:var(--acc);font-weight:600;padding:4px 0;">⚙️ កំណត់ Cloudflare Worker Proxy (ជម្រើស)</summary>
+            <div style="margin-top:6px;display:flex;gap:6px;">
+              <input type="url" id="proxyUrlInput" placeholder="https://payway-proxy.xxxx.workers.dev" style="flex:1;padding:7px 10px;border-radius:8px;border:1px solid var(--line);background:var(--card2);color:var(--ink);font-size:11px;" />
+              <button type="button" id="saveProxyUrlBtn" style="padding:7px 12px;border-radius:8px;border:none;background:#005b82;color:#fff;font-size:11px;font-weight:700;cursor:pointer;">Save</button>
+            </div>
+            <div style="font-size:10px;color:var(--dim);margin-top:4px;">សម្រាប់ដំណើរការ Dynamic QR ផ្ទាល់លើវេបសាយ 100% គ្មាន CORS</div>
+          </details>
         </div>
       </div>
 
@@ -712,7 +721,7 @@ Hello everyone, welcome back.">
 
   <div class="toast" id="toast">
   </div>
-  <script src="app.js?v=khqr_fix_v14"></script>
+  <script src="app.js?v=worker_proxy_v15"></script>
 </body>
 
 </html>
