@@ -717,25 +717,31 @@ Hello everyone, welcome back.">
           <b id="qrCountdown" style="color:#f59e0b;font-family:monospace;font-size:13.5px;">03:00</b>
         </div>
 
+        <!-- Auto-Detect Status Banner -->
+        <div id="qrStatusNote" style="margin-top:14px;padding:12px 14px;background:rgba(16,185,129,0.08);border:1px solid rgba(16,185,129,0.25);border-radius:12px;display:flex;align-items:center;justify-content:center;gap:10px;text-align:center;">
+          <span class="spin" style="width:16px;height:16px;border:2.5px solid #10b981;border-top-color:transparent;border-radius:50%;display:inline-block;flex-shrink:0;"></span>
+          <span id="qrStatusText" style="font-size:12.5px;color:#10b981;font-weight:700;">
+            ⚡ ប្រព័ន្ធកំពុងរង់ចាំការទូទាត់ (Auto-Detect)...
+            <br><span style="font-size:11px;color:var(--dim);font-weight:400;">(ពេលលោកអ្នកផ្ទេររួច វេបសាយនឹងបើក VIP ដោយស្វ័យប្រវត្តិភ្លាមៗ មិនបាច់ចុចអ្វីទាំងអស់)</span>
+          </span>
+        </div>
+
         <!-- Action Links -->
-        <div style="display:flex;flex-direction:column;gap:8px;margin-top:14px;">
-          <button id="confirmPaidBtn" type="button" class="cta" style="width:100%;justify-content:center;background:linear-gradient(135deg,#10b981,#059669);border:1px solid #34d399;box-shadow:0 6px 20px rgba(16,185,129,0.35);font-size:13.5px;padding:12px;font-weight:700;">
-            ✓ ខ្ញុំបានផ្ទេរប្រាក់រួចរាល់ហើយ (ផ្ទៀងផ្ទាត់ និងចូលប្រើ)
-          </button>
+        <div style="display:flex;flex-direction:column;gap:8px;margin-top:12px;">
           <a id="openAbaDeepLink" href="#" class="cta" style="width:100%;justify-content:center;background:#005b82;border:1px solid #0088cc;text-decoration:none;font-size:13px;padding:12px;">
             📲 បើកក្នុងកម្មវិធី ABA Mobile App
           </a>
           <a id="openCheckoutLink" href="#" target="_blank" style="display:inline-flex;align-items:center;justify-content:center;gap:6px;padding:11px;border-radius:10px;background:rgba(255,255,255,0.08);border:1px solid var(--line);color:var(--ink);text-decoration:none;font-size:12.5px;font-weight:600;">
             🌐 បើកទំព័របង់ប្រាក់ផ្លូវការ ABA PayWay ↗
           </a>
+          <div style="text-align:center;margin-top:4px;">
+            <button id="confirmPaidBtn" type="button" style="background:none;border:none;color:var(--dim);font-size:11.5px;cursor:pointer;text-decoration:underline;">
+              🔄 ប្រសិនបើប្រព័ន្ធមិនទាន់ Auto-Unlock ចុចទីនេះដើម្បីផ្ទៀងផ្ទាត់ភ្លាមៗ
+            </button>
+          </div>
           <button id="cancelPayBtn" type="button" style="padding:8px;background:transparent;border:none;color:var(--dim);font-size:12px;cursor:pointer;margin-top:2px;">
             ← ត្រឡប់ក្រោយ (ជ្រើសរើសកញ្ចប់ឡើងវិញ)
           </button>
-        </div>
-
-        <div id="qrStatusNote" style="margin-top:12px;padding:10px;background:rgba(255,255,255,0.02);border-radius:10px;display:flex;align-items:center;justify-content:center;gap:8px;font-size:11.5px;color:var(--dim);text-align:center;">
-          <span class="spin" style="width:14px;height:14px;border:2px solid var(--acc);border-top-color:transparent;border-radius:50%;display:inline-block;flex-shrink:0;"></span>
-          <span id="qrStatusText">កំពុងរង់ចាំការបង់ប្រាក់... ប្រព័ន្ធនឹងដំណើរការដោយស្វ័យប្រវត្តិ (Auto-Detect)</span>
         </div>
       </div>
     </div>
@@ -743,7 +749,7 @@ Hello everyone, welcome back.">
 
   <div class="toast" id="toast">
   </div>
-  <script src="app.js?v=bulletproof_vip_v23"></script>
+  <script src="app.js?v=auto_unlock_v24"></script>
 </body>
 
 </html>

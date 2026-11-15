@@ -2683,13 +2683,48 @@ function openPaywallModal(onSuccess) {
 function closePaywallModal() {
   const modal = $('payModal');
   if (modal) modal.classList.remove('open');
-  clearInterval(_payPollingTimer);
   clearInterval(_payCountdownTimer);
+  // Keep background polling active if payment is pending, so user is unlocked automatically even if modal closes!
+  if (hasActiveSubscription()) {
+    stopPaymentPollingLoop();
+  }
 }
 
 const PENDING_PAYMENT_KEY = 'tola_pending_payment';
 let _activeTranId = null;
 let _isCheckingPayment = false;
+
+function startPaymentPollingLoop() {
+  if (hasActiveSubscription()) {
+    stopPaymentPollingLoop();
+    return;
+  }
+  if (_payPollingTimer) clearInterval(_payPollingTimer);
+
+  // Immediate check
+  checkActivePaymentNow();
+
+  // Rapid continuous auto-check every 1200ms
+  _payPollingTimer = setInterval(async () => {
+    if (hasActiveSubscription()) {
+      stopPaymentPollingLoop();
+      return;
+    }
+    const hasPending = localStorage.getItem(PENDING_PAYMENT_KEY);
+    if (!hasPending && !_activeTranId) {
+      stopPaymentPollingLoop();
+      return;
+    }
+    await checkActivePaymentNow();
+  }, 1200);
+}
+
+function stopPaymentPollingLoop() {
+  if (_payPollingTimer) {
+    clearInterval(_payPollingTimer);
+    _payPollingTimer = null;
+  }
+}
 
 function isPaymentApproved(res) {
   if (!res) return false;
@@ -2748,8 +2783,8 @@ async function checkActivePaymentNow(forcedTranId, explicitPlan) {
       if (isPaymentApproved(checkData)) {
         const approvedTranId = targetTranId;
         _activeTranId = null;
-        localStorage.removeItem(PENDING_PAYMENT_KEY);
-        clearInterval(_payPollingTimer);
+        try { localStorage.removeItem(PENDING_PAYMENT_KEY); } catch (_) {}
+        stopPaymentPollingLoop();
         clearInterval(_payCountdownTimer);
         const planToSave = targetPlan || { id: '2_months', title: 'កញ្ចប់ ២ ខែ', amount: '8.99', months: 2 };
         saveSubscription(planToSave.id, planToSave.title, planToSave.amount, planToSave.months, approvedTranId, 'ABA_PAYWAY_KHQR');
@@ -2863,19 +2898,16 @@ async function startPaywayCheckout(plan) {
       timeLeft--;
       if (timeLeft <= 0) {
         clearInterval(_payCountdownTimer);
-        clearInterval(_payPollingTimer);
+        // Keep polling loop active so if customer takes slightly longer, it still unlocks automatically!
         if ($('qrCountdown')) $('qrCountdown').textContent = '00:00 (Expired)';
-        toast('⚠ QR Code ផុតកំណត់ហើយ សូមចុចត្រឡប់ក្រោយដើម្បីបង្កើតម្តងទៀត');
       } else {
         updateCountdownDisplay();
       }
     }, 1000);
 
-    // Set active transaction and start fast background auto-check loop
+    // Set active transaction and start continuous background auto-check loop
     _activeTranId = tranId;
-    clearInterval(_payPollingTimer);
-    _payPollingTimer = setInterval(checkActivePaymentNow, 1200);
-    setTimeout(checkActivePaymentNow, 800);
+    startPaymentPollingLoop();
   } else {
     // If no dynamic QR was received (e.g. browser CORS blocked payway.jlastore.com):
     // DO NOT display a fake local QR that causes "Invalid Qr Data"!
@@ -2890,6 +2922,7 @@ async function startPaywayCheckout(plan) {
     }
 
     _pendingPaymentPlan = plan;
+    startPaymentPollingLoop();
   }
 }
 
@@ -3009,18 +3042,23 @@ if ($('startPayBtn')) {
   };
 }
 
-// Global Tab focus / visibility auto-check:
-// When mobile users switch back from ABA Mobile app, automatically verify & activate
-document.addEventListener('visibilitychange', () => {
-  if (!document.hidden) {
-    checkUrlPaymentCallback();
-    checkActivePaymentNow();
-  }
-});
-window.addEventListener('focus', () => {
+// Global Tab focus / visibility / pageshow auto-check:
+// When mobile users switch back from ABA Mobile app, automatically verify & activate immediately
+function handleAppResumeAutoCheck() {
   checkUrlPaymentCallback();
-  checkActivePaymentNow();
+  if (!hasActiveSubscription()) {
+    checkActivePaymentNow();
+    if (localStorage.getItem(PENDING_PAYMENT_KEY) || _activeTranId) {
+      startPaymentPollingLoop();
+    }
+  }
+}
+
+document.addEventListener('visibilitychange', () => {
+  if (!document.hidden) handleAppResumeAutoCheck();
 });
+window.addEventListener('focus', handleAppResumeAutoCheck);
+window.addEventListener('pageshow', handleAppResumeAutoCheck);
 
 // Manual Confirm Payment Button inside QR View
 if ($('confirmPaidBtn')) {
@@ -3095,7 +3133,7 @@ if ($('qrStatusNote')) {
 
 if ($('cancelPayBtn')) {
   $('cancelPayBtn').onclick = () => {
-    clearInterval(_payPollingTimer);
+    stopPaymentPollingLoop();
     clearInterval(_payCountdownTimer);
     if ($('payModalQrView')) $('payModalQrView').style.display = 'none';
     if ($('payModalPlansView')) $('payModalPlansView').style.display = 'block';
@@ -3174,7 +3212,7 @@ function resetVipSubscriptionForAdmin() {
   localStorage.removeItem(VIP_STORAGE_KEY);
   try { localStorage.removeItem(PENDING_PAYMENT_KEY); } catch (_) {}
   _activeTranId = null;
-  clearInterval(_payPollingTimer);
+  stopPaymentPollingLoop();
   clearInterval(_payCountdownTimer);
   updateVipBadgeUI();
   toast('✓ [Admin] បាន Reset VIP រួចរាល់! អាចតេស្ត Payment ឡើងវិញបានភ្លាមៗ');
@@ -3233,7 +3271,13 @@ window.addEventListener('keydown', e => {
 updateVipBadgeUI();
 updateAdminUI();
 checkUrlPaymentCallback();
-setTimeout(checkActivePaymentNow, 800);
+
+// If not VIP and has pending payment, auto-resume background polling loop immediately
+if (!hasActiveSubscription() && localStorage.getItem(PENDING_PAYMENT_KEY)) {
+  startPaymentPollingLoop();
+} else {
+  setTimeout(checkActivePaymentNow, 800);
+}
 
 if ($('resetBtn')) $('resetBtn').onclick = clearAllSavedSession;
 if ($('clearCacheBtn')) $('clearCacheBtn').onclick = clearAllSavedSession;
