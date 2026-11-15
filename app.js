@@ -2544,7 +2544,7 @@ async function clearAllSavedSession() {
 // --- TOLA Dubber PRO VIP Subscription & ABA PayWay Integration ---
 const VIP_STORAGE_KEY = 'tola_dubber_pro_vip';
 const ABA_PAYWAY_URL = 'https://link.payway.com.kh/ABAPAYlP553382Z';
-const DEFAULT_PAYWAY_API = 'https://payway.jlastore.com';
+const DEFAULT_PAYWAY_API = 'https://autumn-smoke-5a70.chendatola338.workers.dev';
 
 function getPaywayApiBase() {
   const custom = localStorage.getItem('tola_payway_proxy_url');
