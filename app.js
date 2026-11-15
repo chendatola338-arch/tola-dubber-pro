@@ -1073,17 +1073,25 @@ const when = ctx.currentTime + Math.max(0, delay);
 try { n.start(when, off) } catch (_) { active.delete(n); return 0 }
 return when + p.b.duration - off;
 }
-function _0x12b9() { active.forEach(a => { a.onended = null; try { a.stop() } catch (_) { } }); active.clear(); try { speechSynthesis.cancel() } catch (_) { } }
+function _0x12b9() { active.forEach(a => { a.onended = null; try { a.stop() } catch (_) { } }); active.clear(); try { if (typeof speechSynthesis !== 'undefined' && speechSynthesis.cancel) speechSynthesis.cancel() } catch (_) { } }
 function _0x12ca() {
+if (typeof speechSynthesis === 'undefined' || !speechSynthesis || !speechSynthesis.getVoices) return;
+try {
 const vs = speechSynthesis.getVoices();
 kmVoice = vs.find(x => /^km/i.test(x.lang)) || vs.find(x => /khmer/i.test(x.name)) || null;
 $('voiceNote').textContent = voiceErr ? '⚠ Voice failed: ' + voiceErr + ' — press 🔊 Voice to retry, or change the voice in the Pipeline tab.' : kmVoice ? 'Voice: ' + kmVoice.name : 'No Khmer voice installed on this device, so “Gemini voice” is the way to hear Khmer here (or add the Khmer language pack in Windows/Edge, or Google Speech Services on Android).';
+} catch (_) {}
 }
-speechSynthesis.onvoiceschanged = _0x12ca; _0x12ca();
+if (typeof speechSynthesis !== 'undefined' && speechSynthesis) {
+try { speechSynthesis.onvoiceschanged = _0x12ca; } catch (_) {}
+try { _0x12ca(); } catch (_) {}
+}
 function say(text, i) {
-if (!kmVoice || (segs[i] && (segs[i].audio || segs[i].skip))) return;
+if (typeof speechSynthesis === 'undefined' || !kmVoice || (segs[i] && (segs[i].audio || segs[i].skip))) return;
+try {
 const u = new SpeechSynthesisUtterance(text); u.lang = 'km-KH'; if (kmVoice) u.voice = kmVoice; u.rate = 1.05;
 speechSynthesis.speak(u);
+} catch (_) {}
 }
 let _0x1473 = 0, _0x1484 = '';
 async function _0x12db() {
@@ -3224,7 +3232,12 @@ if ($('saveProxyUrlBtn') && $('proxyUrlInput')) {
 }
 
 if ($('vipBtn')) {
-  $('vipBtn').onclick = () => openPaywallModal();
+  const openVip = (e) => {
+    if (e && e.cancelable && e.type === 'touchend') e.preventDefault();
+    openPaywallModal();
+  };
+  $('vipBtn').onclick = openVip;
+  $('vipBtn').ontouchend = openVip;
 }
 
 // --- Admin VIP Testing Controls ---
