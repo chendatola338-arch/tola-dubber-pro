@@ -645,7 +645,7 @@ Hello everyone, welcome back.">
         </div>
 
         <!-- Official Bakong KHQR Card Structure -->
-        <div class="khqr-card-container">
+        <div class="khqr-card-container" id="khqrCardBox">
           <!-- Red Banner Header with KHQR text logo -->
           <div class="khqr-card-header">
             <img src="https://link.payway.com.kh/images/khqr-icon.svg" alt="KHQR" class="khqr-logo-img" />
@@ -676,8 +676,15 @@ Hello everyone, welcome back.">
           </div>
         </div>
 
+        <!-- Direct ABA PayWay Notice (shown when opening official ABA gateway) -->
+        <div id="directPayNoticeBox" style="display:none;background:rgba(0,91,130,0.12);border:1px solid rgba(0,136,204,0.3);border-radius:12px;padding:16px;text-align:center;margin-bottom:12px;">
+          <div style="font-size:26px;margin-bottom:6px;">🚀</div>
+          <div style="font-weight:700;color:var(--ink);font-size:14px;margin-bottom:4px;">ផ្ទាំងបង់ប្រាក់ផ្លូវការ ABA PayWay បានបើក</div>
+          <div style="font-size:12px;color:var(--dim);line-height:1.5;">ដើម្បីសុវត្ថិភាព និងធានាការស្កេនបាន ១០០% គ្មានបញ្ហា Invalid QR សូមទូទាត់ប្រាក់លើទំព័រ ABA PayWay ឬក្នុងកម្មវិធី ABA Mobile App</div>
+        </div>
+
         <!-- Countdown timer -->
-        <div style="margin-top:12px;text-align:center;font-size:12px;color:var(--dim);display:flex;align-items:center;justify-content:center;gap:6px;">
+        <div id="qrCountdownWrap" style="margin-top:12px;text-align:center;font-size:12px;color:var(--dim);display:flex;align-items:center;justify-content:center;gap:6px;">
           <span>⏳ QR Code ផុតកំណត់ក្នុងរយៈពេល៖</span>
           <b id="qrCountdown" style="color:#f59e0b;font-family:monospace;font-size:13.5px;">03:00</b>
         </div>
@@ -687,8 +694,8 @@ Hello everyone, welcome back.">
           <a id="openAbaDeepLink" href="#" class="cta" style="width:100%;justify-content:center;background:#005b82;border:1px solid #0088cc;text-decoration:none;font-size:13px;padding:12px;">
             📲 បើកក្នុងកម្មវិធី ABA Mobile App
           </a>
-          <a id="openCheckoutLink" href="#" target="_blank" style="display:inline-flex;align-items:center;justify-content:center;gap:6px;padding:10px;border-radius:10px;background:rgba(255,255,255,0.06);border:1px solid var(--line);color:var(--ink);text-decoration:none;font-size:12px;font-weight:600;">
-            🌐 បើកផ្ទាំងបង់ប្រាក់ ABA PayWay ↗
+          <a id="openCheckoutLink" href="#" target="_blank" style="display:inline-flex;align-items:center;justify-content:center;gap:6px;padding:11px;border-radius:10px;background:rgba(255,255,255,0.08);border:1px solid var(--line);color:var(--ink);text-decoration:none;font-size:12.5px;font-weight:600;">
+            🌐 បើកទំព័របង់ប្រាក់ផ្លូវការ ABA PayWay ↗
           </a>
           <button id="cancelPayBtn" type="button" style="padding:8px;background:transparent;border:none;color:var(--dim);font-size:12px;cursor:pointer;margin-top:2px;">
             ← ត្រឡប់ក្រោយ (ជ្រើសរើសកញ្ចប់ឡើងវិញ)
@@ -697,7 +704,7 @@ Hello everyone, welcome back.">
 
         <div id="qrStatusNote" style="margin-top:12px;padding:10px;background:rgba(255,255,255,0.02);border-radius:10px;display:flex;align-items:center;justify-content:center;gap:8px;font-size:11.5px;color:var(--dim);text-align:center;">
           <span class="spin" style="width:14px;height:14px;border:2px solid var(--acc);border-top-color:transparent;border-radius:50%;display:inline-block;flex-shrink:0;"></span>
-          <span>កំពុងរង់ចាំការបង់ប្រាក់... ប្រព័ន្ធនឹងដំណើរការដោយស្វ័យប្រវត្តិ (Auto-Detect)</span>
+          <span id="qrStatusText">កំពុងរង់ចាំការបង់ប្រាក់... ប្រព័ន្ធនឹងដំណើរការដោយស្វ័យប្រវត្តិ (Auto-Detect)</span>
         </div>
       </div>
     </div>
@@ -705,7 +712,7 @@ Hello everyone, welcome back.">
 
   <div class="toast" id="toast">
   </div>
-  <script src="app.js?v=authentic_khqr_v12"></script>
+  <script src="app.js?v=khqr_fix_v14"></script>
 </body>
 
 </html>
