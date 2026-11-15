@@ -749,20 +749,27 @@ async function handleTts(request) {
       error instanceof Error ? error.message : "request body must be valid json"
     );
   }
-  try {
-    const stream = await createAudioStream(parsed);
-    const primedStream = await primeAudioStream(stream);
-    return new Response(primedStream, {
-      status: 200,
-      headers: {
-        ...CORS_HEADERS,
-        "Content-Type": "audio/mpeg"
+  let lastErr;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      const stream = await createAudioStream(parsed);
+      const primedStream = await primeAudioStream(stream);
+      return new Response(primedStream, {
+        status: 200,
+        headers: {
+          ...CORS_HEADERS,
+          "Content-Type": "audio/mpeg"
+        }
+      });
+    } catch (error) {
+      lastErr = error;
+      if (attempt < 2) {
+        await new Promise((resolve) => setTimeout(resolve, 350 * (attempt + 1)));
       }
-    });
-  } catch (error) {
-    console.error("tts synthesis failed", error);
-    return errorResponse(502, "TTS_UPSTREAM_ERROR", "failed to synthesize audio");
+    }
   }
+  console.error("tts synthesis failed after 3 attempts", lastErr);
+  return errorResponse(502, "TTS_UPSTREAM_ERROR", lastErr instanceof Error ? lastErr.message : "failed to synthesize audio");
 }
 
 // ../../../.gemini/antigravity/brain/cf2d3203-3520-4742-b236-845637dba62c/scratch/cf-edge-tts/src/handlers/tts-health.ts
