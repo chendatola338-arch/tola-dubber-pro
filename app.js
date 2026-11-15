@@ -777,21 +777,12 @@ o.setUint32(24, sr, true); o.setUint32(28, sr * 2, true); o.setUint16(32, 2, tru
 for (let i = 0; i < n; i++) { const x = Math.max(-1, Math.min(1, pcm[i])); o.setInt16(44 + i * 2, x < 0 ? x * 32768 : x * 32767, true) }
 return new Blob([o.buffer], { type: 'audio/wav' });
 }
-const _deadEdgeServers = new Set();
 async function _0x11ba(base, text, voice, rate) {
   let err;
-  const rawList = [
-    base,
-    'https://autumn-smoke-5a70.chendatola338.workers.dev',
-    'https://khmer-voice-1.onrender.com'
-  ].filter((v, idx, arr) => v && arr.indexOf(v) === idx);
+  const srv = (base && !base.includes('onrender.com')) ? base : 'https://autumn-smoke-5a70.chendatola338.workers.dev';
 
-  let activeServers = rawList.filter(s => !_deadEdgeServers.has(s));
-  if (!activeServers.length) activeServers = [base || 'https://autumn-smoke-5a70.chendatola338.workers.dev'];
-
-  for (let t = 0; t < 2; t++) {
-    const srv = activeServers[t % activeServers.length];
-    const ac = new AbortController(), to = setTimeout(() => ac.abort(), 10000);
+  for (let t = 0; t < 3; t++) {
+    const ac = new AbortController(), to = setTimeout(() => ac.abort(), 7000);
     try {
       const r = await fetch(srv + '/tts', {
         method: 'POST',
@@ -799,17 +790,16 @@ async function _0x11ba(base, text, voice, rate) {
         body: JSON.stringify(rate ? { text, voice, rate } : { text, voice }),
         signal: ac.signal
       });
-      if (r.status === 404) {
-        _deadEdgeServers.add(srv);
-        throw new Error('Endpoint 404 (Worker code not deployed on ' + srv + ')');
+      if (!r.ok) {
+        const errTxt = (await r.text()).slice(0, 80);
+        throw new Error('HTTP ' + r.status + ' ' + errTxt);
       }
-      if (!r.ok) throw new Error('HTTP ' + r.status + ' ' + (await r.text()).slice(0, 80));
       const b = await r.blob();
       if (b.size < 200) throw new Error('empty audio returned');
       return b;
     } catch (e) {
       err = e;
-      if (t < 1) await sleep(500);
+      if (t < 2) await sleep(400 * (t + 1));
     } finally {
       clearTimeout(to);
     }
@@ -854,25 +844,23 @@ try {
 await _0x141e(i, await _0x11cb(base, txt, voice, '+8%', 140));
 return;
 } catch (e) {
-if (_deadEdgeServers.has(base)) throw e;
 blog('Retrying line ' + (i + 1) + ' (' + (segs[i].g === 'f' ? 'Sreymom' : 'Piseth') + ')…', 'w');
-await sleep(200);
+await sleep(300);
 await _0x141e(i, await _0x11cb(base, txt, voice, '+8%', 60));
 }
 };
-// Use controlled concurrency (3 parallel streams) to prevent mobile 4G network drops
-const CONC = Math.min(3, Math.max(1, q.length));
+// Sequential pipeline with slight pause prevents Microsoft Edge WebSocket 502 drops
+const CONC = 1;
 await Promise.all(Array.from({ length: CONC }, async () => {
 while (q.length) {
 const i = q.shift();
-await sleep(80);
+await sleep(120);
 try { await gen(i) } catch (e) { failed.push(i); blog('✕ line ' + (i + 1) + ' failed: ' + (e.message || e), 'w') }
 const pctV = 75 + Math.round(((++done) / Math.max(1, total)) * 23); setProgress(pctV, 'Generating Khmer voice with Edge (' + done + '/' + total + ')...', 'Khmer Voice'); log('Generating Khmer voice with Edge… ' + done + '/' + total + (failed.length ? ' (' + failed.length + ' failed)' : ''));
 }
 }));
-for (let pass = 0; pass < 2 && failed.length && !_deadEdgeServers.has(base); pass++) {
-await sleep(1000 * (pass + 1));
-try { await fetch(base + '/ping') } catch (_) { }
+for (let pass = 0; pass < 2 && failed.length; pass++) {
+await sleep(800 * (pass + 1));
 const retryList = failed.slice();
 for (const i of retryList) {
 log('Retrying line ' + (i + 1) + ' (pass ' + (pass + 1) + ')…');
