@@ -2572,6 +2572,10 @@ function getSubscription() {
     const sub = JSON.parse(raw);
     if (sub && sub.active && sub.expires_at > Date.now()) {
       return sub;
+    } else if (sub && sub.expires_at && sub.expires_at <= Date.now()) {
+      // Subscription has reached 0 days (expired) -> automatically purge
+      localStorage.removeItem(VIP_STORAGE_KEY);
+      setTimeout(updateVipBadgeUI, 0);
     }
   } catch (_) {}
   return null;
@@ -2608,7 +2612,8 @@ function updateVipBadgeUI() {
     vipBtn.classList.add('active');
     const daysLeft = Math.max(1, Math.ceil((sub.expires_at - Date.now()) / (24 * 60 * 60 * 1000)));
     vipText.textContent = `VIP (${daysLeft} ថ្ងៃ)`;
-    vipBtn.title = `VIP Active: ${sub.plan_title} (${daysLeft} ថ្ងៃនៅសល់)`;
+    const expDateStr = new Date(sub.expires_at).toLocaleDateString('km-KH', { year: 'numeric', month: 'short', day: 'numeric' });
+    vipBtn.title = `VIP Active: ${sub.plan_title} (នៅសល់ ${daysLeft} ថ្ងៃ ផុតកំណត់ថ្ងៃ ${expDateStr})`;
   } else {
     vipBtn.classList.remove('active');
     vipText.textContent = 'VIP Plan';
@@ -2628,9 +2633,19 @@ function openPaywallModal(onSuccess) {
   clearInterval(_payCountdownTimer);
 
   const sub = getSubscription();
+  const statusCard = $('activeSubStatusCard');
   if (sub) {
-    const days = Math.max(1, Math.ceil((sub.expires_at - Date.now()) / (24 * 60 * 60 * 1000)));
-    toast(`👑 លោកអ្នកជាសមាជិក VIP រួចហើយ (${days} ថ្ងៃនៅសល់)`);
+    const daysLeft = Math.max(1, Math.ceil((sub.expires_at - Date.now()) / (24 * 60 * 60 * 1000)));
+    const expDateStr = new Date(sub.expires_at).toLocaleDateString('km-KH', { year: 'numeric', month: 'short', day: 'numeric' });
+    if (statusCard) {
+      statusCard.style.display = 'block';
+      if ($('activeSubTitle')) $('activeSubTitle').textContent = `👑 កំពុងប្រើប្រាស់៖ ${sub.plan_title}`;
+      if ($('activeSubExpiry')) $('activeSubExpiry').textContent = `📅 ផុតកំណត់នៅ៖ ${expDateStr}`;
+      if ($('activeSubDaysBadge')) $('activeSubDaysBadge').textContent = `នៅសល់ ${daysLeft} ថ្ងៃ`;
+    }
+    toast(`👑 លោកអ្នកជាសមាជិក VIP រួចហើយ (${daysLeft} ថ្ងៃនៅសល់)`);
+  } else {
+    if (statusCard) statusCard.style.display = 'none';
   }
 
   modal.classList.add('open');
