@@ -641,6 +641,23 @@ Hello everyone, welcome back.">
           💳 បង់ប្រាក់ឥឡូវនេះតាម ABA PayWay / KHQR ($8.99)
         </button>
 
+        <div style="text-align:center;margin-top:12px;">
+          <a id="verifyLastPaidBtn" href="#" style="font-size:12px;color:var(--dim);text-decoration:none;display:inline-flex;align-items:center;gap:4px;">
+            🔄 ធ្លាប់បង់ប្រាក់រួចហើយតែមិនទាន់បើក? ចុចទីនេះដើម្បីផ្ទៀងផ្ទាត់
+          </a>
+        </div>
+        <div style="text-align:center;margin-top:8px;">
+          <a id="togglePromoCodeLink" href="#" style="font-size:11.5px;color:var(--dim);text-decoration:none;opacity:0.75;">
+            🔑 បញ្ចូល VIP Activation Code (បើមាន)
+          </a>
+        </div>
+        <div id="promoCodeBox" style="display:none;margin-top:8px;background:rgba(255,255,255,0.04);border:1px solid var(--line);border-radius:10px;padding:8px 10px;">
+          <div style="display:flex;gap:6px;">
+            <input id="vipCodeInput" type="text" placeholder="បញ្ចូលកូដ (ឧ. VIP899)" style="flex:1;background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:7px 10px;color:var(--ink);font-size:12.5px;text-transform:uppercase;" />
+            <button id="applyVipCodeBtn" type="button" style="padding:7px 14px;background:var(--acc);color:#fff;border:none;border-radius:8px;font-weight:700;font-size:12px;cursor:pointer;">Activate</button>
+          </div>
+        </div>
+
         <!-- Admin Only VIP Reset Bar -->
         <div id="adminModalResetBar" style="display:none;margin-top:12px;padding:8px 12px;background:rgba(239,68,68,0.1);border:1px dashed #ef4444;border-radius:10px;justify-content:space-between;align-items:center;">
           <span style="font-size:11.5px;color:#f87171;font-weight:700;">🛡️ Admin Test Mode</span>
@@ -702,6 +719,9 @@ Hello everyone, welcome back.">
 
         <!-- Action Links -->
         <div style="display:flex;flex-direction:column;gap:8px;margin-top:14px;">
+          <button id="confirmPaidBtn" type="button" class="cta" style="width:100%;justify-content:center;background:linear-gradient(135deg,#10b981,#059669);border:1px solid #34d399;box-shadow:0 6px 20px rgba(16,185,129,0.35);font-size:13.5px;padding:12px;font-weight:700;">
+            ✓ ខ្ញុំបានផ្ទេរប្រាក់រួចរាល់ហើយ (ផ្ទៀងផ្ទាត់ និងចូលប្រើ)
+          </button>
           <a id="openAbaDeepLink" href="#" class="cta" style="width:100%;justify-content:center;background:#005b82;border:1px solid #0088cc;text-decoration:none;font-size:13px;padding:12px;">
             📲 បើកក្នុងកម្មវិធី ABA Mobile App
           </a>
@@ -723,7 +743,7 @@ Hello everyone, welcome back.">
 
   <div class="toast" id="toast">
   </div>
-  <script src="app.js?v=dynamic_timeout_v22"></script>
+  <script src="app.js?v=bulletproof_vip_v23"></script>
 </body>
 
 </html>

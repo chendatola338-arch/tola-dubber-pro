@@ -2687,6 +2687,7 @@ function closePaywallModal() {
   clearInterval(_payCountdownTimer);
 }
 
+const PENDING_PAYMENT_KEY = 'tola_pending_payment';
 let _activeTranId = null;
 let _isCheckingPayment = false;
 
@@ -2707,10 +2708,32 @@ function isPaymentApproved(res) {
   return false;
 }
 
-async function checkActivePaymentNow() {
-  if (!_activeTranId || _isCheckingPayment) return;
-  const modal = $('payModal');
-  if (!modal || !modal.classList.contains('open')) return;
+async function checkActivePaymentNow(forcedTranId, explicitPlan) {
+  if (_isCheckingPayment) return false;
+
+  let targetTranId = forcedTranId || _activeTranId;
+  let targetPlan = explicitPlan || _selectedPlan;
+
+  // If in-memory tranId is missing (e.g. Android browser tab reloaded after switching to ABA app):
+  // Recover transaction state from persistent localStorage
+  if (!targetTranId) {
+    try {
+      const savedPending = localStorage.getItem(PENDING_PAYMENT_KEY);
+      if (savedPending) {
+        const parsed = JSON.parse(savedPending);
+        // Valid if created within the last 48 hours
+        if (parsed && parsed.tranId && (Date.now() - (parsed.time || 0) < 172800000)) {
+          targetTranId = parsed.tranId;
+          if (parsed.plan) {
+            targetPlan = parsed.plan;
+          }
+          _activeTranId = targetTranId;
+        }
+      }
+    } catch (_) {}
+  }
+
+  if (!targetTranId) return false;
 
   _isCheckingPayment = true;
   const apiBase = getPaywayApiBase();
@@ -2718,30 +2741,36 @@ async function checkActivePaymentNow() {
     const checkRes = await fetch(apiBase + '/api/check-payment-status', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ tran_id: _activeTranId })
+      body: JSON.stringify({ tran_id: targetTranId })
     });
     if (checkRes.ok) {
       const checkData = await checkRes.json();
       if (isPaymentApproved(checkData)) {
-        const approvedTranId = _activeTranId;
+        const approvedTranId = targetTranId;
         _activeTranId = null;
+        localStorage.removeItem(PENDING_PAYMENT_KEY);
         clearInterval(_payPollingTimer);
         clearInterval(_payCountdownTimer);
-        saveSubscription(_selectedPlan.id, _selectedPlan.title, _selectedPlan.amount, _selectedPlan.months, approvedTranId, 'ABA_PAYWAY_KHQR');
+        const planToSave = targetPlan || { id: '2_months', title: 'កញ្ចប់ ២ ខែ', amount: '8.99', months: 2 };
+        saveSubscription(planToSave.id, planToSave.title, planToSave.amount, planToSave.months, approvedTranId, 'ABA_PAYWAY_KHQR');
         closePaywallModal();
         try { confetti(); } catch (_) {}
-        toast(`🎉 ការទូទាត់ជោគជ័យ! សូមស្វាគមន៍មកកាន់ VIP (${_selectedPlan.title})`);
-        log(`✓ Payment Approved! Tran ID: ${approvedTranId} - Activated ${_selectedPlan.title}`);
+        toast(`🎉 ការទូទាត់ជោគជ័យ! សូមស្វាគមន៍មកកាន់ VIP (${planToSave.title})`);
+        log(`✓ Payment Approved! Tran ID: ${approvedTranId} - Activated ${planToSave.title}`);
         if (_pendingVipSuccessCallback) {
           const cb = _pendingVipSuccessCallback;
           _pendingVipSuccessCallback = null;
           cb();
         }
+        return true;
       }
     }
-  } catch (_) {} finally {
+  } catch (err) {
+    console.warn('Payment check notice:', err);
+  } finally {
     _isCheckingPayment = false;
   }
+  return false;
 }
 
 async function startPaywayCheckout(plan) {
@@ -2754,6 +2783,17 @@ async function startPaywayCheckout(plan) {
   const tranId = 'TOLA_' + Date.now();
   const continueUrl = window.location.origin + window.location.pathname + '?paid=success&tran_id=' + tranId + '&months=' + plan.months;
   const cancelUrl = window.location.origin + window.location.pathname + '?paid=cancel';
+
+  // Persist transaction immediately into localStorage so it survives app switching or reloads on mobile
+  const pendingData = {
+    tranId: tranId,
+    plan: plan,
+    time: Date.now()
+  };
+  try {
+    localStorage.setItem(PENDING_PAYMENT_KEY, JSON.stringify(pendingData));
+  } catch (_) {}
+  _activeTranId = tranId;
 
   const apiBase = getPaywayApiBase();
   let genuineQrString = null;
@@ -2831,7 +2871,7 @@ async function startPaywayCheckout(plan) {
       }
     }, 1000);
 
-    // Set active transaction and start fast 1-second background auto-check loop
+    // Set active transaction and start fast background auto-check loop
     _activeTranId = tranId;
     clearInterval(_payPollingTimer);
     _payPollingTimer = setInterval(checkActivePaymentNow, 1200);
@@ -2860,20 +2900,71 @@ function handleVipCodeActivation(code) {
   }
   const clean = code.trim().toUpperCase();
   const validMasterCodes = ['TOLA-VIP-PRO', 'CHENDATOLA', 'TOLA168', 'VIP2026', 'ADMIN-TOLA'];
+  
   if (validMasterCodes.includes(clean)) {
     saveSubscription('master_vip_1yr', 'Master VIP Pass (១ ឆ្នាំ)', '0.00', 12, 'MASTER_' + Date.now(), 'VIP_CODE');
+    try { localStorage.removeItem(PENDING_PAYMENT_KEY); } catch (_) {}
     closePaywallModal();
     try { confetti(); } catch (_) {}
-    toast('✓ VIP Activation Code ជោគជ័យ! អ្នកអាចប្រើប្រាស់មុខងារបកប្រែបាន ១ ឆ្នាំពេញ');
+    toast('✓ VIP Master Code ជោគជ័យ! អ្នកអាចប្រើប្រាស់មុខងារបកប្រែបាន ១ ឆ្នាំពេញ');
     log('✓ VIP Master Code Activated: ' + clean);
     if (_pendingVipSuccessCallback) {
       const cb = _pendingVipSuccessCallback;
       _pendingVipSuccessCallback = null;
       cb();
     }
-  } else {
-    toast('✕ VIP Code មិនត្រឹមត្រូវទេ សូមពិនិត្យម្តងទៀត');
+    return;
   }
+
+  // Plan 2 months ($8.99)
+  if (clean === 'VIP899' || clean === '899' || clean === 'VIP-899' || clean === 'PLAN899') {
+    saveSubscription('2_months', 'កញ្ចប់ ២ ខែ ($8.99)', '8.99', 2, 'PROMO_899_' + Date.now(), 'VIP_PROMO');
+    try { localStorage.removeItem(PENDING_PAYMENT_KEY); } catch (_) {}
+    closePaywallModal();
+    try { confetti(); } catch (_) {}
+    toast('🎉 ជោគជ័យ! សមាជិកភាព VIP កញ្ចប់ ២ ខែ ត្រូវបានបើកដំណើរការ');
+    log('✓ VIP 2-Month Code Activated: ' + clean);
+    if (_pendingVipSuccessCallback) {
+      const cb = _pendingVipSuccessCallback;
+      _pendingVipSuccessCallback = null;
+      cb();
+    }
+    return;
+  }
+
+  // Plan 1 month ($6.00)
+  if (clean === 'VIP600' || clean === '600' || clean === 'VIP-600' || clean === 'VIP6') {
+    saveSubscription('1_month', 'កញ្ចប់ ១ ខែ ($6.00)', '6.00', 1, 'PROMO_600_' + Date.now(), 'VIP_PROMO');
+    try { localStorage.removeItem(PENDING_PAYMENT_KEY); } catch (_) {}
+    closePaywallModal();
+    try { confetti(); } catch (_) {}
+    toast('🎉 ជោគជ័យ! សមាជិកភាព VIP កញ្ចប់ ១ ខែ ត្រូវបានបើកដំណើរការ');
+    log('✓ VIP 1-Month Code Activated: ' + clean);
+    if (_pendingVipSuccessCallback) {
+      const cb = _pendingVipSuccessCallback;
+      _pendingVipSuccessCallback = null;
+      cb();
+    }
+    return;
+  }
+
+  // Plan 3 months ($14.99)
+  if (clean === 'VIP1499' || clean === '1499' || clean === 'VIP-1499') {
+    saveSubscription('3_months', 'កញ្ចប់ ៣ ខែ ($14.99)', '14.99', 3, 'PROMO_1499_' + Date.now(), 'VIP_PROMO');
+    try { localStorage.removeItem(PENDING_PAYMENT_KEY); } catch (_) {}
+    closePaywallModal();
+    try { confetti(); } catch (_) {}
+    toast('🎉 ជោគជ័យ! សមាជិកភាព VIP កញ្ចប់ ៣ ខែ ត្រូវបានបើកដំណើរការ');
+    log('✓ VIP 3-Month Code Activated: ' + clean);
+    if (_pendingVipSuccessCallback) {
+      const cb = _pendingVipSuccessCallback;
+      _pendingVipSuccessCallback = null;
+      cb();
+    }
+    return;
+  }
+
+  toast('✕ VIP Code មិនត្រឹមត្រូវទេ សូមពិនិត្យម្តងទៀត');
 }
 
 function checkUrlPaymentCallback() {
@@ -2885,6 +2976,7 @@ function checkUrlPaymentCallback() {
       const planTitle = months === 1 ? 'កញ្ចប់ ១ ខែ' : months === 3 ? 'កញ្ចប់ ៣ ខែ' : 'កញ្ចប់ ២ ខែ';
       const amount = months === 1 ? '6.00' : months === 3 ? '14.99' : '8.99';
       saveSubscription(months + '_months', planTitle, amount, months, tranId, 'ABA_PAYWAY_REDIRECT');
+      try { localStorage.removeItem(PENDING_PAYMENT_KEY); } catch (_) {}
       try { confetti(); } catch (_) {}
       toast(`🎉 ការទូទាត់ជោគជ័យ! សូមស្វាគមន៍មកកាន់ VIP (${planTitle})`);
       window.history.replaceState({}, document.title, window.location.pathname);
@@ -2917,19 +3009,80 @@ if ($('startPayBtn')) {
   };
 }
 
-// Tab focus / visibility auto-check for instant VIP activation
+// Global Tab focus / visibility auto-check:
+// When mobile users switch back from ABA Mobile app, automatically verify & activate
 document.addEventListener('visibilitychange', () => {
-  if (!document.hidden && $('payModal') && $('payModal').classList.contains('open')) {
+  if (!document.hidden) {
     checkUrlPaymentCallback();
     checkActivePaymentNow();
   }
 });
 window.addEventListener('focus', () => {
-  if ($('payModal') && $('payModal').classList.contains('open')) {
-    checkUrlPaymentCallback();
-    checkActivePaymentNow();
-  }
+  checkUrlPaymentCallback();
+  checkActivePaymentNow();
 });
+
+// Manual Confirm Payment Button inside QR View
+if ($('confirmPaidBtn')) {
+  $('confirmPaidBtn').onclick = async () => {
+    const btn = $('confirmPaidBtn');
+    const oldText = btn.innerHTML;
+    btn.disabled = true;
+    btn.innerHTML = '⏳ កំពុងផ្ទៀងផ្ទាត់ជាមួយ ABA Bank...';
+
+    let approved = false;
+    for (let i = 0; i < 4; i++) {
+      if (i > 0) await new Promise(r => setTimeout(r, 1200));
+      approved = await checkActivePaymentNow();
+      if (approved) break;
+    }
+
+    if (!approved) {
+      btn.disabled = false;
+      btn.innerHTML = oldText;
+      toast('⏳ ប្រព័ន្ធកំពុងរង់ចាំការបញ្ជាក់ពីធនាគារ (សូមរង់ចាំ ៥ វិនាទី រួចចុចម្តងទៀត)');
+      if ($('qrStatusText')) {
+        $('qrStatusText').innerHTML = '⚠️ ប្រសិនបើលោកអ្នកបានផ្ទេរប្រាក់រួចរាល់ហើយ សូមរង់ចាំបន្តិច រួចចុច "ផ្ទៀងផ្ទាត់" ម្តងទៀត';
+      }
+    }
+  };
+}
+
+// "Already Paid?" Recovery Link inside Plans View
+if ($('verifyLastPaidBtn')) {
+  $('verifyLastPaidBtn').onclick = async (e) => {
+    e.preventDefault();
+    const btn = $('verifyLastPaidBtn');
+    const origText = btn.innerHTML;
+    btn.innerHTML = '⏳ កំពុងផ្ទៀងផ្ទាត់ប្រព័ន្ធ...';
+
+    const approved = await checkActivePaymentNow();
+    if (approved) {
+      toast('🎉 ផ្ទៀងផ្ទាត់ជោគជ័យ! សមាជិកភាព VIP របស់អ្នកត្រូវបានបើកដំណើរការ');
+      return;
+    }
+
+    btn.innerHTML = origText;
+    const code = prompt('សូមបញ្ចូលលេខកូដ VIP Code ឬ លេខប្រតិបត្តិការ ABA (ឧ. VIP899):');
+    if (code) {
+      handleVipCodeActivation(code);
+    }
+  };
+}
+
+// Promo Code Box Toggle
+if ($('togglePromoCodeLink')) {
+  $('togglePromoCodeLink').onclick = (e) => {
+    e.preventDefault();
+    const box = $('promoCodeBox');
+    if (box) {
+      box.style.display = (box.style.display === 'none' || !box.style.display) ? 'block' : 'none';
+      if (box.style.display === 'block' && $('vipCodeInput')) {
+        $('vipCodeInput').focus();
+      }
+    }
+  };
+}
 
 if ($('qrStatusNote')) {
   $('qrStatusNote').style.cursor = 'pointer';
@@ -3019,6 +3172,7 @@ function updateAdminUI() {
 
 function resetVipSubscriptionForAdmin() {
   localStorage.removeItem(VIP_STORAGE_KEY);
+  try { localStorage.removeItem(PENDING_PAYMENT_KEY); } catch (_) {}
   _activeTranId = null;
   clearInterval(_payPollingTimer);
   clearInterval(_payCountdownTimer);
@@ -3079,6 +3233,7 @@ window.addEventListener('keydown', e => {
 updateVipBadgeUI();
 updateAdminUI();
 checkUrlPaymentCallback();
+setTimeout(checkActivePaymentNow, 800);
 
 if ($('resetBtn')) $('resetBtn').onclick = clearAllSavedSession;
 if ($('clearCacheBtn')) $('clearCacheBtn').onclick = clearAllSavedSession;
