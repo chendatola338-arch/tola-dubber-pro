@@ -2643,16 +2643,61 @@ function closePaywallModal() {
   clearInterval(_payCountdownTimer);
 }
 
+let _activeTranId = null;
+let _isCheckingPayment = false;
+
 function isPaymentApproved(res) {
   if (!res) return false;
+  // 1. Direct check on action returned by ABA PayWay / JLA Gateway
+  const action = String(res.action || (res.data && res.data.action) || '').toLowerCase().trim();
+  if (action === 'approved' || action === 'paid' || action === 'success' || action === 'completed') return true;
+
+  // 2. Direct checks on status flags
   if (res.status === 'approved' || res.status === 0 || res.status === '0') return true;
-  if (res.status && typeof res.status === 'object' && res.status.tran_id && String(res.status.tran_id).trim() !== '') return true;
   if (res.data) {
+    if (res.data.status === 'approved' || res.data.status === 0 || res.data.status === '0') return true;
     if (res.data.download_receipt && String(res.data.download_receipt).trim() !== '') return true;
     if (res.data.message && res.data.message.tran_id && String(res.data.message.tran_id).trim() !== '') return true;
-    if (res.data.status === 'approved' || res.data.status === 0 || res.data.status === '0') return true;
   }
+  if (res.status && typeof res.status === 'object' && res.status.tran_id && String(res.status.tran_id).trim() !== '') return true;
   return false;
+}
+
+async function checkActivePaymentNow() {
+  if (!_activeTranId || _isCheckingPayment) return;
+  const modal = $('payModal');
+  if (!modal || !modal.classList.contains('open')) return;
+
+  _isCheckingPayment = true;
+  const apiBase = getPaywayApiBase();
+  try {
+    const checkRes = await fetch(apiBase + '/api/check-payment-status', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ tran_id: _activeTranId })
+    });
+    if (checkRes.ok) {
+      const checkData = await checkRes.json();
+      if (isPaymentApproved(checkData)) {
+        const approvedTranId = _activeTranId;
+        _activeTranId = null;
+        clearInterval(_payPollingTimer);
+        clearInterval(_payCountdownTimer);
+        saveSubscription(_selectedPlan.id, _selectedPlan.title, _selectedPlan.amount, _selectedPlan.months, approvedTranId, 'ABA_PAYWAY_KHQR');
+        closePaywallModal();
+        try { confetti(); } catch (_) {}
+        toast(`🎉 ការទូទាត់ជោគជ័យ! សូមស្វាគមន៍មកកាន់ VIP (${_selectedPlan.title})`);
+        log(`✓ Payment Approved! Tran ID: ${approvedTranId} - Activated ${_selectedPlan.title}`);
+        if (_pendingVipSuccessCallback) {
+          const cb = _pendingVipSuccessCallback;
+          _pendingVipSuccessCallback = null;
+          cb();
+        }
+      }
+    }
+  } catch (_) {} finally {
+    _isCheckingPayment = false;
+  }
 }
 
 async function startPaywayCheckout(plan) {
@@ -2742,34 +2787,11 @@ async function startPaywayCheckout(plan) {
       }
     }, 1000);
 
-    // Background status check loop for 100% automated VIP activation
+    // Set active transaction and start fast 1-second background auto-check loop
+    _activeTranId = tranId;
     clearInterval(_payPollingTimer);
-    _payPollingTimer = setInterval(async () => {
-      try {
-        const checkRes = await fetch(apiBase + '/api/check-payment-status', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ tran_id: tranId })
-        });
-        if (checkRes.ok) {
-          const checkData = await checkRes.json();
-          if (isPaymentApproved(checkData)) {
-            clearInterval(_payPollingTimer);
-            clearInterval(_payCountdownTimer);
-            saveSubscription(plan.id, plan.title, plan.amount, plan.months, tranId, 'ABA_PAYWAY_KHQR');
-            closePaywallModal();
-            try { confetti(); } catch (_) {}
-            toast(`🎉 ការទូទាត់ជោគជ័យ! សូមស្វាគមន៍មកកាន់ TOLA Dubber PRO VIP (${plan.title})`);
-            log(`✓ Payment Approved! Tran ID: ${tranId} - Activated ${plan.title}`);
-            if (_pendingVipSuccessCallback) {
-              const cb = _pendingVipSuccessCallback;
-              _pendingVipSuccessCallback = null;
-              cb();
-            }
-          }
-        }
-      } catch (_) {}
-    }, 3000);
+    _payPollingTimer = setInterval(checkActivePaymentNow, 1200);
+    setTimeout(checkActivePaymentNow, 800);
   } else {
     // If no dynamic QR was received (e.g. browser CORS blocked payway.jlastore.com):
     // DO NOT display a fake local QR that causes "Invalid Qr Data"!
@@ -2851,17 +2873,28 @@ if ($('startPayBtn')) {
   };
 }
 
-// Tab focus / visibility auto-check for returning mobile shoppers
+// Tab focus / visibility auto-check for instant VIP activation
 document.addEventListener('visibilitychange', () => {
   if (!document.hidden && $('payModal') && $('payModal').classList.contains('open')) {
     checkUrlPaymentCallback();
+    checkActivePaymentNow();
   }
 });
 window.addEventListener('focus', () => {
   if ($('payModal') && $('payModal').classList.contains('open')) {
     checkUrlPaymentCallback();
+    checkActivePaymentNow();
   }
 });
+
+if ($('qrStatusNote')) {
+  $('qrStatusNote').style.cursor = 'pointer';
+  $('qrStatusNote').title = 'ចុចដើម្បីពិនិត្យស្ថានភាពការបង់ប្រាក់ភ្លាមៗ';
+  $('qrStatusNote').onclick = () => {
+    if ($('qrStatusText')) $('qrStatusText').textContent = '⚡ កំពុងពិនិត្យការទូទាត់ភ្លាមៗ...';
+    checkActivePaymentNow();
+  };
+}
 
 if ($('cancelPayBtn')) {
   $('cancelPayBtn').onclick = () => {
