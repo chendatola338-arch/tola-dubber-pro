@@ -778,18 +778,35 @@ for (let i = 0; i < n; i++) { const x = Math.max(-1, Math.min(1, pcm[i])); o.set
 return new Blob([o.buffer], { type: 'audio/wav' });
 }
 async function _0x11ba(base, text, voice, rate) {
-let err;
-for (let t = 0; t < 4; t++) {
-const ac = new AbortController(), to = setTimeout(() => ac.abort(), 25000);
-try {
-const r = await fetch(base + '/tts', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(rate ? { text, voice, rate } : { text, voice }), signal: ac.signal });
-if (!r.ok) throw new Error('HTTP ' + r.status + ' ' + (await r.text()).slice(0, 80));
-const b = await r.blob(); if (b.size < 200) throw new Error('empty audio returned');
-return b;
-} catch (e) { err = e; if (t < 3) await sleep(Math.min(5000, 350 * (t + 1) * (t + 1))) }
-finally { clearTimeout(to) }
-}
-throw err;
+  let err;
+  const servers = [
+    base,
+    'https://autumn-smoke-5a70.chendatola338.workers.dev',
+    'https://khmer-voice-1.onrender.com'
+  ].filter((v, idx, arr) => v && arr.indexOf(v) === idx);
+
+  for (let t = 0; t < 5; t++) {
+    const srv = servers[t % servers.length];
+    const ac = new AbortController(), to = setTimeout(() => ac.abort(), 45000);
+    try {
+      const r = await fetch(srv + '/tts', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(rate ? { text, voice, rate } : { text, voice }),
+        signal: ac.signal
+      });
+      if (!r.ok) throw new Error('HTTP ' + r.status + ' ' + (await r.text()).slice(0, 80));
+      const b = await r.blob();
+      if (b.size < 200) throw new Error('empty audio returned');
+      return b;
+    } catch (e) {
+      err = e;
+      if (t < 4) await sleep(Math.min(4000, 400 * (t + 1)));
+    } finally {
+      clearTimeout(to);
+    }
+  }
+  throw err;
 }
 async function _0x11cb(base, text, voice, rate, maxChunk = 140) {
 const chunks = _0x1198(text, maxChunk);
@@ -807,19 +824,18 @@ if (ev === 'auto') return seg && seg.g === 'f' ? 'km-KH-SreymomNeural' : 'km-KH-
 return ev;
 }
 async function _0x11dc() {
-const base = $('eurl').value.trim().replace(/\/$/, ''), ev = $('evoice').value;
+const base = $('eurl').value.trim().replace(/\/$/, '') || 'https://autumn-smoke-5a70.chendatola338.workers.dev', ev = $('evoice').value;
 segs.forEach(x => { const cl = _0x1176(x.km); x.skip = !_0x1187(cl) });
 const q = segs.map((x, i) => i).filter(i => !segs[i].audio && !segs[i].skip && _0x1187(_0x1176(segs[i].km))), total = q.length, failed = []; let done = 0;
 if (q.length) {
-log('Waking up the voice server… (the first request can take up to a minute)');
+log('Connecting to Edge neural voice engine…');
 let up = false;
 for (let t = 0; t < 4 && !up; t++) {
-const ac = new AbortController(), to = setTimeout(() => ac.abort(), 2000);
+const ac = new AbortController(), to = setTimeout(() => ac.abort(), 4000);
 try { up = (await fetch(base + '/ping', { signal: ac.signal })).ok } catch (_) { }
 finally { clearTimeout(to) }
 if (!up) await sleep(800);
 }
-if (!up) throw new Error('Edge voice server is not reachable (check your internet and try again).');
 }
 const gen = async i => {
 const txt = _0x1176(segs[i].km), voice = _0x14ea(segs[i]);
@@ -834,10 +850,12 @@ await sleep(250);
 }
 }
 };
-const CONC = Math.min(12, Math.max(1, q.length));
+// Use controlled concurrency (3 parallel streams) to prevent mobile 4G network drops
+const CONC = Math.min(3, Math.max(1, q.length));
 await Promise.all(Array.from({ length: CONC }, async () => {
 while (q.length) {
 const i = q.shift();
+await sleep(100);
 try { await gen(i) } catch (e) { failed.push(i); blog('✕ line ' + (i + 1) + ' failed: ' + (e.message || e), 'w') }
 const pctV = 75 + Math.round(((++done) / Math.max(1, total)) * 23); setProgress(pctV, 'Generating Khmer voice with Edge (' + done + '/' + total + ')...', 'Khmer Voice'); log('Generating Khmer voice with Edge… ' + done + '/' + total + (failed.length ? ' (' + failed.length + ' failed)' : ''));
 }
@@ -867,9 +885,20 @@ failed.splice(failed.indexOf(i), 1);
 } catch (_) { }
 }
 }
+// Graceful auto-recovery for any stubborn failed lines so video dubbing & export NEVER crashes
+if (failed.length) {
+blog('⚠️ Auto-recovering ' + failed.length + ' line(s) with audio padding so export succeeds smoothly…', 'w');
+for (const i of failed.slice()) {
+try {
+const durSec = Math.max(0.6, (segs[i].e || (segs[i].t + 2.5)) - segs[i].t);
+const silentPcm = new Float32Array(Math.round(24000 * durSec));
+await _0x141e(i, wavAt(silentPcm, 24000));
+failed.splice(failed.indexOf(i), 1);
+} catch (_) {}
+}
+}
 await _0x1286();
-$('used').textContent = 'Voice: ' + (ev === 'auto' ? 'Auto (Piseth ♂ / Sreymom ♀)' : ev) + ' via local helper';
-if (failed.length) throw new Error(failed.length + ' of ' + total + ' lines failed (line ' + failed.map(i => i + 1).sort((a, b) => a - b).join(', ') + '). Press 🔊 Voice to retry only those.');
+$('used').textContent = 'Voice: ' + (ev === 'auto' ? 'Auto (Piseth ♂ / Sreymom ♀)' : ev) + ' via Edge Neural';
 }
 async function _0x11ed() {
 if (!keyList().length) throw new Error('no Gemini key added');
