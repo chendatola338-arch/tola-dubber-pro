@@ -2946,8 +2946,94 @@ if ($('vipBtn')) {
   $('vipBtn').onclick = () => openPaywallModal();
 }
 
-// Initialize VIP state and URL return on startup
+// --- Admin VIP Testing Controls ---
+const ADMIN_STORAGE_KEY = 'tola_is_admin';
+
+function isAdminMode() {
+  try {
+    if (localStorage.getItem(ADMIN_STORAGE_KEY) === '1') return true;
+    const p = new URLSearchParams(window.location.search);
+    if (p.has('admin') || p.get('admin') === '1' || p.get('admin') === 'tola') {
+      localStorage.setItem(ADMIN_STORAGE_KEY, '1');
+      return true;
+    }
+  } catch (_) {}
+  return false;
+}
+
+function updateAdminUI() {
+  const isAdmin = isAdminMode();
+  const headerBtn = $('adminResetVipBtn');
+  const modalBar = $('adminModalResetBar');
+  if (headerBtn) {
+    headerBtn.style.display = isAdmin ? 'inline-flex' : 'none';
+  }
+  if (modalBar) {
+    modalBar.style.display = isAdmin ? 'flex' : 'none';
+  }
+}
+
+function resetVipSubscriptionForAdmin() {
+  localStorage.removeItem(VIP_STORAGE_KEY);
+  _activeTranId = null;
+  clearInterval(_payPollingTimer);
+  clearInterval(_payCountdownTimer);
+  updateVipBadgeUI();
+  toast('✓ [Admin] បាន Reset VIP រួចរាល់! អាចតេស្ត Payment ឡើងវិញបានភ្លាមៗ');
+  log('✓ [Admin] VIP status reset for payment testing.');
+  openPaywallModal();
+}
+
+if ($('adminResetVipBtn')) {
+  $('adminResetVipBtn').onclick = resetVipSubscriptionForAdmin;
+}
+if ($('adminModalResetBtn')) {
+  $('adminModalResetBtn').onclick = resetVipSubscriptionForAdmin;
+}
+
+// Triple-click on Logo "T" to toggle Admin Mode
+let _logoClickCount = 0;
+let _logoClickTimer = null;
+const logoEl = document.querySelector('.logo');
+if (logoEl) {
+  logoEl.style.cursor = 'pointer';
+  logoEl.onclick = () => {
+    _logoClickCount++;
+    clearTimeout(_logoClickTimer);
+    _logoClickTimer = setTimeout(() => { _logoClickCount = 0; }, 800);
+    if (_logoClickCount >= 3) {
+      _logoClickCount = 0;
+      const cur = localStorage.getItem(ADMIN_STORAGE_KEY) === '1';
+      if (cur) {
+        localStorage.removeItem(ADMIN_STORAGE_KEY);
+        toast('🔒 Admin Mode: Disabled');
+      } else {
+        localStorage.setItem(ADMIN_STORAGE_KEY, '1');
+        toast('🛡️ Admin Mode: Enabled! (បានបើកប៊ូតុង Reset VIP)');
+      }
+      updateAdminUI();
+    }
+  };
+}
+
+// Secret hotkey Alt + Shift + A to toggle Admin Mode
+window.addEventListener('keydown', e => {
+  if (e.altKey && e.shiftKey && (e.key === 'A' || e.key === 'a')) {
+    const cur = localStorage.getItem(ADMIN_STORAGE_KEY) === '1';
+    if (cur) {
+      localStorage.removeItem(ADMIN_STORAGE_KEY);
+      toast('🔒 Admin Mode: Disabled');
+    } else {
+      localStorage.setItem(ADMIN_STORAGE_KEY, '1');
+      toast('🛡️ Admin Mode: Enabled! (បានបើកប៊ូតុង Reset VIP)');
+    }
+    updateAdminUI();
+  }
+});
+
+// Initialize VIP state, admin UI and URL return on startup
 updateVipBadgeUI();
+updateAdminUI();
 checkUrlPaymentCallback();
 
 if ($('resetBtn')) $('resetBtn').onclick = clearAllSavedSession;
