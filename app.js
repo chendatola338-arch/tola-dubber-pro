@@ -1755,10 +1755,15 @@ async function listenNisay(resumed) {
   let resp = null;
   let lastErr = null;
 
+  // Dynamic timeout based on audio file size: allow up to 300s for large 30-minute videos
+  const fileSizeMb = (uploadFile.size || 0) / (1024 * 1024);
+  const timeoutMs = Math.max(120000, Math.min(300000, Math.ceil(fileSizeMb * 5000 + 90000)));
+  const timeoutSec = Math.round(timeoutMs / 1000);
+
   for (let attempt = 1; attempt <= 2; attempt++) {
     try {
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 75000);
+      const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
       resp = await fetch('https://api.nisay.store/v1/audio/transcriptions', {
         method: 'POST',
         headers: {
@@ -1776,7 +1781,7 @@ async function listenNisay(resumed) {
     } catch (err) {
       lastErr = err;
       if (err.name === 'AbortError') {
-        lastErr = new Error('NISAY Transcribe timed out (75s). Please check your internet connection and try again.');
+        lastErr = new Error(`NISAY Transcribe timed out (${timeoutSec}s). Please check your internet connection and try again.`);
       }
       if (attempt === 1) {
         blog('⚠ Network reconnecting 1/2…', 'w');
