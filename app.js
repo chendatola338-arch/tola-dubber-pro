@@ -1456,15 +1456,39 @@ log('✓ Merged Khmer audio downloaded (' + out.duration.toFixed(1) + 's, same l
 b.disabled = false;
 };
 let xUrl = '';
+let _lastExportedBlob = null;
+let _lastExportedName = '';
 function _0x1352(r) {
 if (xUrl) URL.revokeObjectURL(xUrl); xUrl = URL.createObjectURL(r.blob);
+_lastExportedBlob = r.blob;
+_lastExportedName = r.name;
 log('✓ Exported ' + r.name + ' (' + (r.blob.size / 1048576).toFixed(1) + ' MB).');
 $('xinfo').textContent = r.name + ' · ' + (r.blob.size / 1048576).toFixed(1) + ' MB · ' + Math.floor(r.dur / 60) + ':' + String(Math.floor(r.dur % 60)).padStart(2, '0');
 $('xopen').href = xUrl; $('xopen').dataset.n = r.name;
-$('xwhere').textContent = 'Your video was ' + r.where + '. ' + (r.handle ? '' : 'Websites can’t open folders for you: in Chrome or Edge press Ctrl+J (⌘+Shift+J on Mac) and click “Show in folder”.');
+const isIos = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+if (isIos) {
+  $('xwhere').textContent = '📲 សម្រាប់ iPhone: ចុចប៊ូតុងខាងក្រោម ឬចុចសញ្ញា Share [↑] នៅខាងក្រោម Safari រួចជ្រើសរើស "Save Video" ដើម្បីចូល Photos App។';
+  $('xsave').innerHTML = '📲 Save Video ចូល Photos (iPhone)';
+} else {
+  $('xwhere').textContent = 'Your video was ' + r.where + '. ' + (r.handle ? '' : 'Websites can’t open folders for you: in Chrome or Edge press Ctrl+J (⌘+Shift+J on Mac) and click “Show in folder”.');
+}
 $('xmod').classList.add('on'); confetti(); setTimeout(confetti, 700); setTimeout(confetti, 1400);
 }
-$('xsave').onclick = () => { const a = document.createElement('a'); a.href = xUrl; a.download = $('xopen').dataset.n || 'khmer-dubbed'; a.click(); toast('Saving another copy…') };
+$('xsave').onclick = async () => {
+  if (_lastExportedBlob && navigator.canShare) {
+    try {
+      const file = new File([_lastExportedBlob], _lastExportedName || 'khmer-dubbed.mp4', { type: _lastExportedBlob.type || 'video/mp4' });
+      if (navigator.canShare({ files: [file] })) {
+        await navigator.share({
+          files: [file],
+          title: 'Khmer Dubbed Video'
+        });
+        return;
+      }
+    } catch (_) {}
+  }
+  const a = document.createElement('a'); a.href = xUrl; a.download = $('xopen').dataset.n || 'khmer-dubbed'; a.click(); toast('Saving copy…');
+};
 $('xclose').onclick = () => $('xmod').classList.remove('on');
 $('xmod').onclick = e => { if (e.target === $('xmod')) $('xmod').classList.remove('on') };
 let _saveListTimer;
