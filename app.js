@@ -777,17 +777,21 @@ o.setUint32(24, sr, true); o.setUint32(28, sr * 2, true); o.setUint16(32, 2, tru
 for (let i = 0; i < n; i++) { const x = Math.max(-1, Math.min(1, pcm[i])); o.setInt16(44 + i * 2, x < 0 ? x * 32768 : x * 32767, true) }
 return new Blob([o.buffer], { type: 'audio/wav' });
 }
+const _deadEdgeServers = new Set();
 async function _0x11ba(base, text, voice, rate) {
   let err;
-  const servers = [
+  const rawList = [
     base,
     'https://autumn-smoke-5a70.chendatola338.workers.dev',
     'https://khmer-voice-1.onrender.com'
   ].filter((v, idx, arr) => v && arr.indexOf(v) === idx);
 
-  for (let t = 0; t < 5; t++) {
-    const srv = servers[t % servers.length];
-    const ac = new AbortController(), to = setTimeout(() => ac.abort(), 45000);
+  let activeServers = rawList.filter(s => !_deadEdgeServers.has(s));
+  if (!activeServers.length) activeServers = [base || 'https://autumn-smoke-5a70.chendatola338.workers.dev'];
+
+  for (let t = 0; t < 2; t++) {
+    const srv = activeServers[t % activeServers.length];
+    const ac = new AbortController(), to = setTimeout(() => ac.abort(), 10000);
     try {
       const r = await fetch(srv + '/tts', {
         method: 'POST',
@@ -795,13 +799,17 @@ async function _0x11ba(base, text, voice, rate) {
         body: JSON.stringify(rate ? { text, voice, rate } : { text, voice }),
         signal: ac.signal
       });
+      if (r.status === 404) {
+        _deadEdgeServers.add(srv);
+        throw new Error('Endpoint 404 (Worker code not deployed on ' + srv + ')');
+      }
       if (!r.ok) throw new Error('HTTP ' + r.status + ' ' + (await r.text()).slice(0, 80));
       const b = await r.blob();
       if (b.size < 200) throw new Error('empty audio returned');
       return b;
     } catch (e) {
       err = e;
-      if (t < 4) await sleep(Math.min(4000, 400 * (t + 1)));
+      if (t < 1) await sleep(500);
     } finally {
       clearTimeout(to);
     }
@@ -830,24 +838,26 @@ const q = segs.map((x, i) => i).filter(i => !segs[i].audio && !segs[i].skip && _
 if (q.length) {
 log('Connecting to Edge neural voice engine…');
 let up = false;
-for (let t = 0; t < 4 && !up; t++) {
-const ac = new AbortController(), to = setTimeout(() => ac.abort(), 4000);
-try { up = (await fetch(base + '/ping', { signal: ac.signal })).ok } catch (_) { }
+for (let t = 0; t < 2 && !up; t++) {
+const ac = new AbortController(), to = setTimeout(() => ac.abort(), 3000);
+try { const pingR = await fetch(base + '/ping', { signal: ac.signal }); up = pingR.ok; } catch (_) { }
 finally { clearTimeout(to) }
-if (!up) await sleep(800);
+if (!up) await sleep(400);
+}
+if (!up) {
+blog('⚠️ Edge voice server មិនទាន់ឆ្លើយតប (សូមប្រាកដថាបាន Deploy កូដ cloudflare-worker.js លើ Cloudflare រួចរាល់)', 'w');
 }
 }
 const gen = async i => {
 const txt = _0x1176(segs[i].km), voice = _0x14ea(segs[i]);
-for (const sz of [140, 60, 28]) {
 try {
-await _0x141e(i, await _0x11cb(base, txt, voice, '+8%', sz));
+await _0x141e(i, await _0x11cb(base, txt, voice, '+8%', 140));
 return;
 } catch (e) {
-if (sz === 28) throw e;
-blog('Retrying line ' + (i + 1) + ' (' + (segs[i].g === 'f' ? 'Sreymom' : 'Piseth') + ') with shorter Khmer chunks (' + sz + ')…', 'w');
-await sleep(250);
-}
+if (_deadEdgeServers.has(base)) throw e;
+blog('Retrying line ' + (i + 1) + ' (' + (segs[i].g === 'f' ? 'Sreymom' : 'Piseth') + ')…', 'w');
+await sleep(200);
+await _0x141e(i, await _0x11cb(base, txt, voice, '+8%', 60));
 }
 };
 // Use controlled concurrency (3 parallel streams) to prevent mobile 4G network drops
@@ -855,19 +865,19 @@ const CONC = Math.min(3, Math.max(1, q.length));
 await Promise.all(Array.from({ length: CONC }, async () => {
 while (q.length) {
 const i = q.shift();
-await sleep(100);
+await sleep(80);
 try { await gen(i) } catch (e) { failed.push(i); blog('✕ line ' + (i + 1) + ' failed: ' + (e.message || e), 'w') }
 const pctV = 75 + Math.round(((++done) / Math.max(1, total)) * 23); setProgress(pctV, 'Generating Khmer voice with Edge (' + done + '/' + total + ')...', 'Khmer Voice'); log('Generating Khmer voice with Edge… ' + done + '/' + total + (failed.length ? ' (' + failed.length + ' failed)' : ''));
 }
 }));
-for (let pass = 0; pass < 3 && failed.length; pass++) {
-await sleep(1500 * (pass + 1));
+for (let pass = 0; pass < 2 && failed.length && !_deadEdgeServers.has(base); pass++) {
+await sleep(1000 * (pass + 1));
 try { await fetch(base + '/ping') } catch (_) { }
 const retryList = failed.slice();
 for (const i of retryList) {
 log('Retrying line ' + (i + 1) + ' (pass ' + (pass + 1) + ')…');
 try { await gen(i); failed.splice(failed.indexOf(i), 1) }
-catch (e) { blog('✕ line ' + (i + 1) + ' failed again: ' + (e.message || e), 'w'); await sleep(600) }
+catch (e) { blog('✕ line ' + (i + 1) + ' failed again: ' + (e.message || e), 'w'); await sleep(300) }
 }
 }
 if (failed.length && keyList().length) {
