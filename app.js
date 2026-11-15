@@ -2704,7 +2704,7 @@ function startPaymentPollingLoop() {
   // Immediate check
   checkActivePaymentNow();
 
-  // Rapid continuous auto-check every 1200ms
+  // Rapid continuous auto-check every 750ms for lightning-fast unlock
   _payPollingTimer = setInterval(async () => {
     if (hasActiveSubscription()) {
       stopPaymentPollingLoop();
@@ -2716,7 +2716,7 @@ function startPaymentPollingLoop() {
       return;
     }
     await checkActivePaymentNow();
-  }, 1200);
+  }, 750);
 }
 
 function stopPaymentPollingLoop() {
@@ -2772,12 +2772,16 @@ async function checkActivePaymentNow(forcedTranId, explicitPlan) {
 
   _isCheckingPayment = true;
   const apiBase = getPaywayApiBase();
+  const ctrl = new AbortController();
+  const timeoutId = setTimeout(() => ctrl.abort(), 3500);
   try {
     const checkRes = await fetch(apiBase + '/api/check-payment-status', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ tran_id: targetTranId })
+      body: JSON.stringify({ tran_id: targetTranId }),
+      signal: ctrl.signal
     });
+    clearTimeout(timeoutId);
     if (checkRes.ok) {
       const checkData = await checkRes.json();
       if (isPaymentApproved(checkData)) {
@@ -3043,15 +3047,30 @@ if ($('startPayBtn')) {
 }
 
 // Global Tab focus / visibility / pageshow auto-check:
-// When mobile users switch back from ABA Mobile app, automatically verify & activate immediately
+// When mobile users switch back from ABA Mobile app, trigger high-priority burst checks for sub-second VIP unlock
+let _burstCheckTimers = [];
 function handleAppResumeAutoCheck() {
   checkUrlPaymentCallback();
-  if (!hasActiveSubscription()) {
-    checkActivePaymentNow();
-    if (localStorage.getItem(PENDING_PAYMENT_KEY) || _activeTranId) {
-      startPaymentPollingLoop();
-    }
+  if (hasActiveSubscription()) return;
+
+  if ($('qrStatusText')) {
+    $('qrStatusText').innerHTML = '⚡ កំពុងផ្ទៀងផ្ទាត់ជាមួយ ABA Bank ភ្លាមៗ (Auto-Unlocking)...';
   }
+
+  _burstCheckTimers.forEach(clearTimeout);
+  _burstCheckTimers = [];
+
+  // Immediate check at 0ms
+  checkActivePaymentNow();
+
+  // Burst checks at 300ms, 650ms, 1100ms, 1600ms
+  _burstCheckTimers.push(setTimeout(checkActivePaymentNow, 300));
+  _burstCheckTimers.push(setTimeout(checkActivePaymentNow, 650));
+  _burstCheckTimers.push(setTimeout(checkActivePaymentNow, 1100));
+  _burstCheckTimers.push(setTimeout(checkActivePaymentNow, 1600));
+
+  // Maintain fast 750ms continuous auto-polling loop
+  startPaymentPollingLoop();
 }
 
 document.addEventListener('visibilitychange', () => {
@@ -3066,11 +3085,11 @@ if ($('confirmPaidBtn')) {
     const btn = $('confirmPaidBtn');
     const oldText = btn.innerHTML;
     btn.disabled = true;
-    btn.innerHTML = '⏳ កំពុងផ្ទៀងផ្ទាត់ជាមួយ ABA Bank...';
+    btn.innerHTML = '⚡ កំពុងផ្ទៀងផ្ទាត់ល្បឿនលឿន (Ultra-Fast)...';
 
     let approved = false;
-    for (let i = 0; i < 4; i++) {
-      if (i > 0) await new Promise(r => setTimeout(r, 1200));
+    for (let i = 0; i < 6; i++) {
+      if (i > 0) await new Promise(r => setTimeout(r, 400));
       approved = await checkActivePaymentNow();
       if (approved) break;
     }
@@ -3078,9 +3097,9 @@ if ($('confirmPaidBtn')) {
     if (!approved) {
       btn.disabled = false;
       btn.innerHTML = oldText;
-      toast('⏳ ប្រព័ន្ធកំពុងរង់ចាំការបញ្ជាក់ពីធនាគារ (សូមរង់ចាំ ៥ វិនាទី រួចចុចម្តងទៀត)');
+      toast('⏳ ធនាគារ ABA កំពុងបញ្ជាក់... ប្រព័ន្ធនឹង Auto-Unlock ភ្លាមៗពេលធនាគារបញ្ចប់');
       if ($('qrStatusText')) {
-        $('qrStatusText').innerHTML = '⚠️ ប្រសិនបើលោកអ្នកបានផ្ទេរប្រាក់រួចរាល់ហើយ សូមរង់ចាំបន្តិច រួចចុច "ផ្ទៀងផ្ទាត់" ម្តងទៀត';
+        $('qrStatusText').innerHTML = '⚠️ ប្រសិនបើលោកអ្នកបានផ្ទេរប្រាក់រួចរាល់ហើយ សូមរង់ចាំបន្តិច វេបសាយនឹង Auto-Unlock ដោយខ្លួនឯង';
       }
     }
   };
