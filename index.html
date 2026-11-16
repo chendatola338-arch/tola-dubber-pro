@@ -97,11 +97,25 @@
             <div id="cap">
             </div>
           </div>
-          <div class="ctrl">
-            <label class="vol">
-              🔇 Original audio: <b id="volLabel" style="color:#f87171;font-size:12px;margin-left:4px;">Muted (បិទសំឡេងដើម 0%)</b>
-              <input type="range" id="vol" min="0" max="100" value="0" data-save="" />
-            </label>
+          <div class="ctrl" style="flex-direction:column;align-items:stretch;gap:12px;">
+            <div class="bgm-panel" style="background:rgba(255,255,255,0.03);border:1px solid var(--line);border-radius:14px;padding:12px 14px;">
+              <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;flex-wrap:wrap;gap:6px;">
+                <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-weight:700;font-size:13px;color:var(--ink);">
+                  <input type="checkbox" id="bgmMode" checked data-save="" style="accent-color:var(--p);width:17px;height:17px;cursor:pointer;" />
+                  <span>🎵 រក្សាភ្លេងកំដររឿង (Smart BGM & Sound Effects)</span>
+                </label>
+                <span class="tag" style="font-size:11px;background:rgba(34,197,94,0.15);color:#4ade80;border:1px solid rgba(34,197,94,0.3);padding:2px 8px;border-radius:20px;font-weight:600;">
+                  ✓ កាត់សំឡេងតួចិនស្វ័យប្រវត្តិ
+                </span>
+              </div>
+              <label class="vol" style="margin:0;font-size:12px;color:var(--mute);display:block;">
+                កម្រិតសំឡេងភ្លេង BGM: <b id="volLabel" style="color:var(--acc);font-size:12px;margin-left:4px;">65% (BGM & Effects)</b>
+                <input type="range" id="vol" min="0" max="100" value="65" data-save="" style="margin-top:6px;width:100%;" />
+              </label>
+              <div style="font-size:11.5px;color:var(--mute);margin-top:6px;line-height:1.4;">
+                💡 ពេលតួអង្គនិយាយភាសាខ្មែរ សំឡេងតួចិននឹងត្រូវបិទស្ងាត់ (Duck 0%) ហើយពេលឈប់និយាយ ភ្លេងកំដរ និងសំឡេង Effects នឹងបន្លឺឡើងធម្មតាវិញ។
+              </div>
+            </div>
             <div class="cta-split" id="goWrap">
               <button class="cta" id="go" disabled="" type="button">
                 ✨ Dub to Khmer
@@ -752,7 +766,7 @@ Hello everyone, welcome back.">
 
   <div class="toast" id="toast">
   </div>
-  <script src="app.js?v=reset_refresh_v37"></script>
+  <script src="app.js?v=smart_bgm_ducking_v38"></script>
 </body>
 
 </html>

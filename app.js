@@ -1168,6 +1168,24 @@ if (c >= s.t && c < end) cur = s.km;
 if (!s.audio && c >= s.t && c < s.t + 1.5 && !spoken.has(i)) { spoken.add(i); say(s.km, i) }
 }
 if (_0x1484 !== cur) { _0x1484 = cur; $('cap').textContent = cur }
+
+// Smart BGM Mode: Silence Chinese dialogue, boost background music & effects
+const bgmEl = $('bgmMode');
+const isBgmActive = bgmEl ? bgmEl.checked : true;
+const userVol = (+$('vol').value || 0) / 100;
+if (isBgmActive && userVol > 0.01) {
+  // Check if within any dialogue cue (with small 60ms pre-roll and 100ms post-roll padding)
+  const inSpeech = segs.some(s => (c >= (s.t - 0.06) && c <= ((Number(s.e) || (s.t + 2.0)) + 0.10)));
+  const targetVol = inSpeech ? 0 : userVol;
+  if (Math.abs(v.volume - targetVol) > 0.01) {
+    v.volume = targetVol;
+  }
+} else if (!isBgmActive) {
+  if (Math.abs(v.volume - userVol) > 0.01) {
+    v.volume = userVol;
+  }
+}
+
 const ctx = _mac();
 if (ctx.state === 'suspended') {
 try { ctx.resume() } catch (_) { }
@@ -1196,21 +1214,23 @@ played = new Set();
 });
 v.addEventListener('ended', () => { if (segs.length && segs[0].km) { _0x12b9(); v.playbackRate = 1 } });
 
-$('vol').oninput = () => {
+function updateVolLabel() {
   const val = +$('vol').value;
   v.muted = (val === 0);
-  v.volume = val / 100;
+  const isBgm = $('bgmMode') ? $('bgmMode').checked : true;
   const lbl = $('volLabel');
   if (lbl) {
     if (val === 0) {
       lbl.textContent = 'Muted (បិទសំឡេងដើម 0%)';
       lbl.style.color = '#f87171';
     } else {
-      lbl.textContent = val + '%';
+      lbl.textContent = val + '%' + (isBgm ? ' (BGM & Effects)' : '');
       lbl.style.color = 'var(--acc)';
     }
   }
-};
+}
+$('vol').oninput = updateVolLabel;
+if ($('bgmMode')) $('bgmMode').onchange = updateVolLabel;
 
 let _mb = null;
 const _0x12ec = () => _mb || (_mb = (async () => {
@@ -1226,8 +1246,10 @@ _mb = null;
 throw new Error('could not load the video encoder library — check your internet connection');
 })());
 async function _0x12fd(voice, dur, sr = 48000) {
-log('Decoding and mixing audio tracks…');
+log('Decoding and mixing audio tracks (Smart BGM ducking enabled)…');
 const vGain = $('vol').value / 100;
+const bgmEl = $('bgmMode');
+const isBgmActive = bgmEl ? bgmEl.checked : true;
 const totalDur = Math.max(dur || 0, ev0dur(), voice ? voice.duration : 0, 1);
 const len = Math.max(1, Math.ceil(totalDur * sr));
 if (vGain <= 0.001 && voice && voice.sampleRate === sr) {
@@ -1243,7 +1265,34 @@ if (vGain > 0.001) {
 try { orig = await decode(_mac(), await curFile.arrayBuffer()) } catch (_) { blog('⚠ Original audio could not be decoded; exporting with the Khmer voice only.', 'w') }
 }
 const oc = new (window.OfflineAudioContext || window.webkitOfflineAudioContext)(2, len, sr);
-if (orig && vGain > 0.001) { const n = oc.createBufferSource(), g = oc.createGain(); n.buffer = orig; g.gain.value = vGain; n.connect(g); g.connect(oc.destination); n.start(0) }
+if (orig && vGain > 0.001) {
+  const n = oc.createBufferSource(), g = oc.createGain();
+  n.buffer = orig;
+  if (isBgmActive && segs && segs.length) {
+    // Hardware-accelerated offline timeline ducking:
+    // Silence Chinese dialogue (drop to 0), hold full volume for background music and effects
+    g.gain.setValueAtTime(vGain, 0);
+    const sortedCues = segs.slice().sort((a, b) => a.t - b.t);
+    sortedCues.forEach(s => {
+      const st = Math.max(0, s.t - 0.06);
+      const en = Math.min(totalDur, (Number(s.e) || (s.t + 2.0)) + 0.10);
+      if (en > st) {
+        try {
+          g.gain.setValueAtTime(vGain, Math.max(0, st - 0.03));
+          g.gain.linearRampToValueAtTime(0, st);
+          g.gain.setValueAtTime(0, en);
+          g.gain.linearRampToValueAtTime(vGain, Math.min(totalDur, en + 0.06));
+        } catch (_) {}
+      }
+    });
+    blog('✓ Smart BGM Mixing: Retained original background music & sound effects, silenced Chinese speech across ' + segs.length + ' dialogue cues.', 'k');
+  } else {
+    g.gain.value = vGain;
+  }
+  n.connect(g);
+  g.connect(oc.destination);
+  n.start(0);
+}
 if (voice) { const vs = oc.createBufferSource(); vs.buffer = voice; vs.connect(oc.destination); vs.start(0) }
 return await oc.startRendering();
 }
