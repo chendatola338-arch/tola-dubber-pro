@@ -2680,10 +2680,10 @@ async function clearAllSavedSession() {
   setProgress(0, 'Cache cleared. Ready for fresh dubbing!', 'Ready');
   log('✓ Session cache cleared. Refreshing page…');
 
-  // Smooth clean refresh: clears RAM, resets audio context, and reloads clean UI
+  // Instant clean reload: clears RAM, resets audio context, and reloads clean UI
   setTimeout(() => {
-    window.location.href = window.location.pathname;
-  }, 250);
+    window.location.reload();
+  }, 150);
 }
 
 // --- TOLA Dubber PRO VIP Subscription & ABA PayWay Integration ---
