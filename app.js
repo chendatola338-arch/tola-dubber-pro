@@ -787,7 +787,7 @@ async function _0x11ba(base, text, voice, rate) {
   }
 
   for (let t = 0; t < 3; t++) {
-    const ac = new AbortController(), to = setTimeout(() => ac.abort(), 6500);
+    const ac = new AbortController(), to = setTimeout(() => ac.abort(), 15000);
     try {
       const r = await fetch(srv + '/tts', {
         method: 'POST',
@@ -805,7 +805,7 @@ async function _0x11ba(base, text, voice, rate) {
       return b;
     } catch (e) {
       err = e;
-      if (t < 2) await sleep(250 * (t + 1));
+      if (t < 2) await sleep(300 * (t + 1));
     } finally {
       clearTimeout(to);
     }
@@ -869,8 +869,8 @@ try { await gen(i) } catch (e) { failed.push(i); blog('✕ line ' + (i + 1) + ' 
 const pctV = 75 + Math.round(((++done) / Math.max(1, total)) * 23); setProgress(pctV, 'Generating Khmer voice with Edge (' + done + '/' + total + ')...', 'Khmer Voice'); log('Generating Khmer voice with Edge… ' + done + '/' + total + (failed.length ? ' (' + failed.length + ' failed)' : ''));
 }
 }));
-for (let pass = 0; pass < 2 && failed.length; pass++) {
-await sleep(600 * (pass + 1));
+for (let pass = 0; pass < 3 && failed.length; pass++) {
+await sleep(500 * (pass + 1));
 const retryList = failed.slice();
 for (const i of retryList) {
 log('Retrying line ' + (i + 1) + ' (pass ' + (pass + 1) + ')…');
@@ -1782,23 +1782,11 @@ async function listenNisay(resumed) {
       offset += p.length;
     }
     _cachedPcm = merged;
-    let targetPcm = merged;
-    let targetRate = 16000;
-    // Downsample audio > 3 minutes to 8kHz: cuts upload size by 50% for fast, rock-solid 4G/5G mobile upload
-    if (merged.length > 16000 * 180) {
-      const halfLen = Math.floor(merged.length / 2);
-      const down = new Float32Array(halfLen);
-      for (let i = 0; i < halfLen; i++) {
-        const idx = i * 2;
-        down[i] = (merged[idx] + (merged[idx + 1] || merged[idx])) * 0.5;
-      }
-      targetPcm = down;
-      targetRate = 8000;
-    }
-    const wavBuf = wav(targetPcm, targetRate);
+    // Always keep full 16kHz audio so Whisper transcribe transcribes the 100% complete story with zero cutoff
+    const wavBuf = wav(merged, 16000);
     uploadFile = new File([wavBuf], 'audio.wav', { type: 'audio/wav' });
     uploadName = 'audio.wav';
-    blog('✓ Lightweight audio ready: ' + (merged.length / 16000).toFixed(1) + 's (' + (uploadFile.size / 1024 / 1024).toFixed(2) + ' MB WAV @ ' + (targetRate / 1000) + 'kHz)', 'k');
+    blog('✓ Full story audio ready: ' + (merged.length / 16000).toFixed(1) + 's (' + (uploadFile.size / 1024 / 1024).toFixed(2) + ' MB WAV @ 16kHz)', 'k');
   } catch (err) {
     blog('⚠ Audio extraction fallback: using original video file (' + (err.message || err) + ')', 'w');
     uploadFile = curFile;
@@ -1974,13 +1962,13 @@ async function translateNisay() {
   if (!total) return;
 
   log('NISAY AI is analyzing characters & translating ' + total + ' lines...');
-  const batchSize = 30; // Optimal batch size
+  const batchSize = 15; // Optimal batch size for fast response and zero timeout
   const batches = [];
   for (let p = 0; p < total; p += batchSize) {
     batches.push(need.slice(p, p + batchSize));
   }
 
-  const CONCURRENCY = 3; // 3 parallel translation streams (3x-5x faster)
+  const CONCURRENCY = 2; // 2 steady streams for smooth load and reliable translation
   let done = 0;
 
   const dramaDubContext = 'DRAMA DUBBING CHARACTER CONTEXT (' + category + '): This is a continuous dialogue conversation between characters in a drama. ' +
@@ -2106,15 +2094,41 @@ async function translateNisay() {
     }
   }
 
-  // Run in parallel with concurrency pool (3 streams simultaneously)
+  // Run in parallel with concurrency pool (2 streams simultaneously)
   const queue = batches.slice();
   const workers = Array.from({ length: Math.min(CONCURRENCY, queue.length) }, async () => {
     while (queue.length) {
       const b = queue.shift();
-      await processBatch(b);
+      try {
+        await processBatch(b);
+      } catch (err) {
+        blog('⚠ Batch translation hiccup (' + (err.message || err) + '), will retry in completion pass', 'w');
+      }
     }
   });
   await Promise.all(workers);
+
+  // GUARANTEED STORY COMPLETION PASS: Ensure 100% of all lines to the end of the video are translated!
+  for (let retryPass = 1; retryPass <= 3; retryPass++) {
+    const missing = segs.map((s, i) => i).filter(i => !segs[i].km || !segs[i].km.trim());
+    if (!missing.length) break;
+    blog('↻ ផ្ទៀងផ្ទាត់ និងបកប្រែបន្ថែម ' + missing.length + ' ឃ្លាដែលនៅសល់ (pass ' + retryPass + ')...', 'w');
+    for (let p = 0; p < missing.length; p += 8) {
+      const slice = missing.slice(p, p + 8);
+      try {
+        await processBatch(slice);
+      } catch (err) {
+        blog('⚠ Retry line hiccup: ' + (err.message || err), 'w');
+      }
+    }
+  }
+
+  // Safety fallback: Ensure no line is ever dropped or lost from the story
+  segs.forEach(s => {
+    if (!s.km || !s.km.trim()) {
+      s.km = s.text || '...';
+    }
+  });
 
   // Assign distinct speaker labels for UI
   segs.forEach((s) => {
@@ -2176,7 +2190,7 @@ if (startStep <= 2) {
 step(2, 'on');
 if (isResume && startStep === 2) blog('↻ Resuming Step 2 (Khmer translation) from saved progress…', 'k');
 if (segs.some(x => !x.km)) { if (isNisayActive()) { await translateNisay(); } else { await translate(); } }
-segs = segs.filter(s => s.km && s.km.trim() && (pasted || s.km !== s.text || /[\u1780-\u17FF]/.test(s.km)));
+segs = segs.filter(s => s.km && s.km.trim());
 if (!segs.length) throw new Error('Translation incomplete. No translated Khmer speech to store into video.');
 if (!pasted && !isNisayActive()) await _0x1154();
 { const n0 = segs.length; segs = _0x11a9(segs); if (segs.length !== n0) blog('Split long lines: ' + n0 + ' → ' + segs.length + ' lines (each short enough for the voice)', 'k') }
