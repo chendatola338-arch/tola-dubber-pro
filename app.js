@@ -1170,8 +1170,55 @@ log('✓ Khmer dub is ready! Press ▶ Replay to play with sound.');
 }
 let _bgmGainNode = null;
 let _mediaSourceNode = null;
+let _currentGainTarget = -1;
+let _speechWindows = [];
+let _speechWindowsKey = '';
 
-function applyBgmVolume(targetGain) {
+function updateSpeechWindows() {
+  if (!segs || !segs.length) {
+    _speechWindows = [];
+    _speechWindowsKey = '';
+    return;
+  }
+  // Pre-roll: 0.28s (280ms) before speech start to completely mute Chinese initial consonants and breath
+  // Post-roll: 0.20s (200ms) after speech end to mute trailing vocal reverb
+  // Min gap to bridge: 1.15s (if gap between speech cues < 1.15s, keep smooth continuous silence without choppy cuts)
+  const preRoll = 0.28;
+  const postRoll = 0.20;
+  const minGap = 1.15;
+
+  const valid = segs.filter(s => s && s.km && s.km.trim() && !s.skip);
+  if (!valid.length) {
+    _speechWindows = [];
+    _speechWindowsKey = '';
+    return;
+  }
+
+  const raw = valid.map(s => {
+    const st = Math.max(0, (Number(s.t) || 0) - preRoll);
+    const cueEnd = (Number(s.e) > s.t) ? Number(s.e) : ((Number(s.t) || 0) + 2.0);
+    const voiceEnd = (Number(s.t) || 0) + (Number(s.dur) || 0);
+    const en = Math.max(cueEnd, voiceEnd) + postRoll;
+    return { start: st, end: en };
+  }).sort((a, b) => a.start - b.start);
+
+  const merged = [];
+  let cur = { start: raw[0].start, end: raw[0].end };
+  for (let i = 1; i < raw.length; i++) {
+    const next = raw[i];
+    if (next.start <= cur.end + minGap) {
+      cur.end = Math.max(cur.end, next.end);
+    } else {
+      merged.push(cur);
+      cur = { start: next.start, end: next.end };
+    }
+  }
+  merged.push(cur);
+  _speechWindows = merged;
+  _speechWindowsKey = segs.length + '_' + (segs[0] ? segs[0].t : 0) + '_' + (segs[segs.length - 1] ? segs[segs.length - 1].t : 0);
+}
+
+function applyBgmVolume(targetGain, isSmooth = true) {
   const ctx = _mac();
   if (ctx.state === 'suspended') {
     try { ctx.resume(); } catch (_) {}
@@ -1187,7 +1234,21 @@ function applyBgmVolume(targetGain) {
 
   if (_bgmGainNode) {
     v.muted = false;
-    _bgmGainNode.gain.value = targetGain;
+    if (Math.abs(_currentGainTarget - targetGain) > 0.005) {
+      _currentGainTarget = targetGain;
+      const now = ctx.currentTime;
+      if (isSmooth) {
+        // Fast, ultra-smooth fade down into silence (timeConstant: 0.035 -> ~100ms)
+        // Gentle, cinematic swell when recovering background music (timeConstant: 0.14 -> ~420ms)
+        const isDucking = targetGain < 0.05;
+        const tc = isDucking ? 0.035 : 0.14;
+        _bgmGainNode.gain.cancelScheduledValues(now);
+        _bgmGainNode.gain.setTargetAtTime(targetGain, now, tc);
+      } else {
+        _bgmGainNode.gain.cancelScheduledValues(now);
+        _bgmGainNode.gain.setValueAtTime(targetGain, now);
+      }
+    }
   } else {
     try {
       v.volume = targetGain;
@@ -1206,19 +1267,23 @@ if (!s.audio && c >= s.t && c < s.t + 1.5 && !spoken.has(i)) { spoken.add(i); sa
 }
 if (_0x1484 !== cur) { _0x1484 = cur; $('cap').textContent = cur }
 
-// Smart BGM Mode: Silence Chinese dialogue, boost background music & effects
+// Smart BGM Mode: Silky-smooth ducking without choppiness or Chinese vocal bleed-through
 const bgmEl = $('bgmMode');
 const isBgmActive = bgmEl ? bgmEl.checked : true;
 const userVol = (+$('vol').value || 0) / 100;
+
 if (isBgmActive && userVol > 0.01) {
-  // Check if within any dialogue cue (with small 60ms pre-roll and 100ms post-roll padding)
-  const inSpeech = segs.some(s => (c >= (s.t - 0.06) && c <= ((Number(s.e) || (s.t + 2.0)) + 0.10)));
+  const currentKey = segs.length + '_' + (segs[0] ? segs[0].t : 0) + '_' + (segs[segs.length - 1] ? segs[segs.length - 1].t : 0);
+  if (!_speechWindows.length || _speechWindowsKey !== currentKey) {
+    updateSpeechWindows();
+  }
+  const inSpeech = _speechWindows.some(w => c >= w.start && c <= w.end);
   const targetGain = inSpeech ? 0 : userVol;
-  applyBgmVolume(targetGain);
+  applyBgmVolume(targetGain, true);
 } else if (!isBgmActive) {
-  applyBgmVolume(userVol);
+  applyBgmVolume(userVol, false);
 } else {
-  applyBgmVolume(0);
+  applyBgmVolume(0, false);
 }
 
 const ctx = _mac();
@@ -1234,28 +1299,37 @@ if (p.st - c <= 0.22 && c >= p.st - 0.3) { played.add(p.i); _0x12a8(ctx, ctx.des
 }
 }
 setInterval(tick, 25); v.addEventListener('timeupdate', tick);
-v.addEventListener('seeked', () => { if (dubbing) { _0x12b9(); played = new Set(); spoken = new Set(segs.map((s, i) => s.t < v.currentTime - 1 ? i : -1).filter(i => i >= 0)) } });
+v.addEventListener('seeked', () => { 
+  _currentGainTarget = -1;
+  if (dubbing) { 
+    _0x12b9(); 
+    played = new Set(); 
+    spoken = new Set(segs.map((s, i) => s.t < v.currentTime - 1 ? i : -1).filter(i => i >= 0));
+  } 
+});
 v.addEventListener('waiting', () => { if (dubbing) { _0x12b9(); played = new Set() } });
 v.addEventListener('playing', () => { if (dubbing) { played = new Set(); tick() } });
 v.addEventListener('pause', () => { 
   try { speechSynthesis.pause() } catch (_) { } 
   _0x12b9(); 
   played = new Set();
-  applyBgmVolume(0);
+  _currentGainTarget = -1;
+  applyBgmVolume(0, false);
 });
 v.addEventListener('play', () => {
 try { speechSynthesis.resume() } catch (_) { }
 _0x1220();
 v.muted = false;
+_currentGainTarget = -1;
 const userVol = (+$('vol').value || 0) / 100;
-applyBgmVolume(userVol);
+applyBgmVolume(userVol, false);
 if (segs.length && segs[0].km && !$('resCard').hidden) {
 dubbing = true;
 if (v.currentTime < 0.05) spoken = new Set();
 }
 played = new Set();
 });
-v.addEventListener('ended', () => { if (segs.length && segs[0].km) { _0x12b9(); v.playbackRate = 1; applyBgmVolume(0); } });
+v.addEventListener('ended', () => { if (segs.length && segs[0].km) { _0x12b9(); v.playbackRate = 1; _currentGainTarget = -1; applyBgmVolume(0, false); } });
 
 function updateVolLabel() {
   const val = +$('vol').value;
@@ -1313,23 +1387,35 @@ if (orig && vGain > 0.001) {
   const n = oc.createBufferSource(), g = oc.createGain();
   n.buffer = orig;
   if (isBgmActive && segs && segs.length) {
-    // Hardware-accelerated offline timeline ducking:
-    // Silence Chinese dialogue (drop to 0), hold full volume for background music and effects
+    // Studio-grade offline timeline ducking:
+    // Merged speech windows eliminate choppy cutting; 140ms fade-out and 400ms fade-in provide buttery smooth transitions
+    updateSpeechWindows();
+    const windows = _speechWindows;
     g.gain.setValueAtTime(vGain, 0);
-    const sortedCues = segs.slice().sort((a, b) => a.t - b.t);
-    sortedCues.forEach(s => {
-      const st = Math.max(0, s.t - 0.06);
-      const en = Math.min(totalDur, (Number(s.e) || (s.t + 2.0)) + 0.10);
-      if (en > st) {
-        try {
-          g.gain.setValueAtTime(vGain, Math.max(0, st - 0.03));
-          g.gain.linearRampToValueAtTime(0, st);
-          g.gain.setValueAtTime(0, en);
-          g.gain.linearRampToValueAtTime(vGain, Math.min(totalDur, en + 0.06));
-        } catch (_) {}
-      }
+
+    let lastScheduledTime = 0;
+    windows.forEach(w => {
+      // w.start has pre-roll (280ms before speech), w.end has post-roll (200ms after speech)
+      const fadeOutStart = Math.max(lastScheduledTime, w.start - 0.14);
+      const fadeOutEnd = Math.max(fadeOutStart, w.start);
+      const fadeInStart = Math.min(totalDur, w.end);
+      const fadeInEnd = Math.min(totalDur, w.end + 0.40);
+
+      try {
+        if (fadeOutStart > lastScheduledTime) {
+          g.gain.setValueAtTime(vGain, fadeOutStart);
+        }
+        if (fadeOutEnd > fadeOutStart) {
+          g.gain.linearRampToValueAtTime(0, fadeOutEnd);
+        } else {
+          g.gain.setValueAtTime(0, fadeOutEnd);
+        }
+        g.gain.setValueAtTime(0, fadeInStart);
+        g.gain.linearRampToValueAtTime(vGain, fadeInEnd);
+        lastScheduledTime = fadeInEnd;
+      } catch (_) {}
     });
-    blog('✓ Smart BGM Mixing: Retained original background music & sound effects, silenced Chinese speech across ' + segs.length + ' dialogue cues.', 'k');
+    blog('✓ Studio Smart BGM Mixing: Silenced Chinese dialogue, smoothly preserved background music and effects across ' + windows.length + ' scene blocks.', 'k');
   } else {
     g.gain.value = vGain;
   }
