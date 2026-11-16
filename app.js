@@ -2640,34 +2640,50 @@ if ($('nisayTestBtn')) {
 
 
 async function clearAllSavedSession() {
+  toast('🔄 កំពុង Reset & Refresh វេបសាយ...');
   try {
     const db = await _0x1396();
-    const tx = db.transaction('kv', 'readwrite');
-    const st = tx.objectStore('kv');
-    st.delete('dubState');
-    st.delete('videoFile');
-    const req = st.openCursor();
-    req.onsuccess = e => {
-      const cur = e.target.result;
-      if (cur) {
-        if (String(cur.key).startsWith('audio_')) cur.delete();
-        cur.continue();
-      }
-    };
+    await new Promise((resolve) => {
+      try {
+        const tx = db.transaction('kv', 'readwrite');
+        const st = tx.objectStore('kv');
+        st.delete('dubState');
+        st.delete('videoFile');
+        const req = st.openCursor();
+        req.onsuccess = e => {
+          const cur = e.target.result;
+          if (cur) {
+            if (String(cur.key).startsWith('audio_')) cur.delete();
+            cur.continue();
+          }
+        };
+        tx.oncomplete = () => resolve();
+        tx.onerror = () => resolve();
+      } catch (_) { resolve(); }
+    });
   } catch (_) {}
+
+  try {
+    sessionStorage.clear();
+  } catch (_) {}
+
   segs = [];
   dubbing = false;
   plan = [];
   played = new Set();
   spoken = new Set();
-  $('resCard').hidden = true;
+  if ($('resCard')) $('resCard').hidden = true;
   if ($('speakerBar')) $('speakerBar').style.display = 'none';
   if ($('editHint')) $('editHint').hidden = true;
   _0x14b7({ hidden: false, disabled: false });
-  ['s1', 's2', 's3'].forEach(i => $(i).className = 's');
+  ['s1', 's2', 's3'].forEach(i => $(i) && ($(i).className = 's'));
   setProgress(0, 'Cache cleared. Ready for fresh dubbing!', 'Ready');
-  log('✓ Session cache cleared. You can now start a fresh dub!');
-  toast('✓ Cleared saved session cache');
+  log('✓ Session cache cleared. Refreshing page…');
+
+  // Smooth clean refresh: clears RAM, resets audio context, and reloads clean UI
+  setTimeout(() => {
+    window.location.href = window.location.pathname;
+  }, 250);
 }
 
 // --- TOLA Dubber PRO VIP Subscription & ABA PayWay Integration ---
