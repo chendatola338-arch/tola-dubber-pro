@@ -1180,12 +1180,11 @@ function updateSpeechWindows() {
     _speechWindowsKey = '';
     return;
   }
-  // Pre-roll: 0.28s (280ms) before speech start to completely mute Chinese initial consonants and breath
-  // Post-roll: 0.20s (200ms) after speech end to mute trailing vocal reverb
-  // Min gap to bridge: 1.15s (if gap between speech cues < 1.15s, keep smooth continuous silence without choppy cuts)
-  const preRoll = 0.28;
-  const postRoll = 0.20;
-  const minGap = 1.15;
+  // Pre-roll: 0.14s (140ms) before Chinese speech to silence initial speech onset & breath
+  // Post-roll: 0.06s (60ms) after Chinese speech to catch vocal release
+  // Only duck during actual Chinese speech cues so BGM & SFX play loud & clear during all pauses and scenes!
+  const preRoll = 0.14;
+  const postRoll = 0.06;
 
   const valid = segs.filter(s => s && s.km && s.km.trim() && !s.skip);
   if (!valid.length) {
@@ -1196,9 +1195,8 @@ function updateSpeechWindows() {
 
   const raw = valid.map(s => {
     const st = Math.max(0, (Number(s.t) || 0) - preRoll);
-    const cueEnd = (Number(s.e) > s.t) ? Number(s.e) : ((Number(s.t) || 0) + 2.0);
-    const voiceEnd = (Number(s.t) || 0) + (Number(s.dur) || 0);
-    const en = Math.max(cueEnd, voiceEnd) + postRoll;
+    const cueEnd = (Number(s.e) > s.t) ? Number(s.e) : ((Number(s.t) || 0) + 1.2);
+    const en = cueEnd + postRoll;
     return { start: st, end: en };
   }).sort((a, b) => a.start - b.start);
 
@@ -1206,7 +1204,8 @@ function updateSpeechWindows() {
   let cur = { start: raw[0].start, end: raw[0].end };
   for (let i = 1; i < raw.length; i++) {
     const next = raw[i];
-    if (next.start <= cur.end + minGap) {
+    // Only bridge if cues actually touch or overlap (within 60ms)
+    if (next.start <= cur.end + 0.06) {
       cur.end = Math.max(cur.end, next.end);
     } else {
       merged.push(cur);
@@ -1234,16 +1233,17 @@ function applyBgmVolume(targetGain, isSmooth = true) {
 
   if (_bgmGainNode) {
     v.muted = false;
-    if (Math.abs(_currentGainTarget - targetGain) > 0.005) {
+    if (Math.abs(_currentGainTarget - targetGain) > 0.01) {
       _currentGainTarget = targetGain;
       const now = ctx.currentTime;
       if (isSmooth) {
-        // Fast, ultra-smooth fade down into silence (timeConstant: 0.035 -> ~100ms)
-        // Gentle, cinematic swell when recovering background music (timeConstant: 0.14 -> ~420ms)
+        // Linear ramp: 80ms fade down to silence, 180ms fade up to full BGM
         const isDucking = targetGain < 0.05;
-        const tc = isDucking ? 0.035 : 0.14;
+        const rampDuration = isDucking ? 0.08 : 0.18;
+        const currentVal = _bgmGainNode.gain.value;
         _bgmGainNode.gain.cancelScheduledValues(now);
-        _bgmGainNode.gain.setTargetAtTime(targetGain, now, tc);
+        _bgmGainNode.gain.setValueAtTime(currentVal, now);
+        _bgmGainNode.gain.linearRampToValueAtTime(targetGain, now + rampDuration);
       } else {
         _bgmGainNode.gain.cancelScheduledValues(now);
         _bgmGainNode.gain.setValueAtTime(targetGain, now);
@@ -1387,19 +1387,16 @@ if (orig && vGain > 0.001) {
   const n = oc.createBufferSource(), g = oc.createGain();
   n.buffer = orig;
   if (isBgmActive && segs && segs.length) {
-    // Studio-grade offline timeline ducking:
-    // Merged speech windows eliminate choppy cutting; 140ms fade-out and 400ms fade-in provide buttery smooth transitions
     updateSpeechWindows();
     const windows = _speechWindows;
     g.gain.setValueAtTime(vGain, 0);
 
     let lastScheduledTime = 0;
     windows.forEach(w => {
-      // w.start has pre-roll (280ms before speech), w.end has post-roll (200ms after speech)
-      const fadeOutStart = Math.max(lastScheduledTime, w.start - 0.14);
+      const fadeOutStart = Math.max(lastScheduledTime, w.start - 0.08);
       const fadeOutEnd = Math.max(fadeOutStart, w.start);
       const fadeInStart = Math.min(totalDur, w.end);
-      const fadeInEnd = Math.min(totalDur, w.end + 0.40);
+      const fadeInEnd = Math.min(totalDur, w.end + 0.18);
 
       try {
         if (fadeOutStart > lastScheduledTime) {
@@ -1415,7 +1412,7 @@ if (orig && vGain > 0.001) {
         lastScheduledTime = fadeInEnd;
       } catch (_) {}
     });
-    blog('✓ Studio Smart BGM Mixing: Silenced Chinese dialogue, smoothly preserved background music and effects across ' + windows.length + ' scene blocks.', 'k');
+    blog('✓ Studio Smart BGM Mixing: Silenced Chinese dialogue, smoothly preserved background music and effects across ' + windows.length + ' cues.', 'k');
   } else {
     g.gain.value = vGain;
   }
