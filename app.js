@@ -1811,11 +1811,17 @@ async function listenNisay(resumed) {
   const timeoutMs = Math.max(120000, Math.min(300000, Math.ceil(fileSizeMb * 5000 + 90000)));
   const timeoutSec = Math.round(timeoutMs / 1000);
 
+  const endpoints = [
+    'https://api.nisay.store/v1/audio/transcriptions',
+    'https://autumn-smoke-5a70.chendatola338.workers.dev/nisay/v1/audio/transcriptions'
+  ];
+
   for (let attempt = 1; attempt <= 3; attempt++) {
+    const targetUrl = endpoints[(attempt - 1) % endpoints.length];
     try {
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
-      resp = await fetch('https://api.nisay.store/v1/audio/transcriptions', {
+      resp = await fetch(targetUrl, {
         method: 'POST',
         headers: {
           'Authorization': 'Bearer ' + nisayKey
@@ -1834,7 +1840,7 @@ async function listenNisay(resumed) {
       if (err.name === 'AbortError') {
         lastErr = new Error(`NISAY Transcribe timed out (${timeoutSec}s). Please check your internet connection and try again.`);
       } else if (/load failed/i.test(err.message) || /failed to fetch/i.test(err.message)) {
-        lastErr = new Error('បញ្ហាភ្ជាប់អ៊ីនធឺណិត (Network Load Failed): មិនអាច Upload សម្លេងទៅកាន់ NISAY Server បានទេ។ សូមពិនិត្យមើលសេវា 5G/4G/Wi-Fi ឬសាកល្បងបើកក្នុង Safari/Chrome ផ្ទាល់ (កុំប្រើក្នុង Telegram browser)។');
+        lastErr = new Error('បញ្ហាភ្ជាប់អ៊ីនធឺណិត (Network Load Failed): សូមពិនិត្យមើលសេវា 5G/4G (គម្រោងអ៊ីនធឺណិត) ឬបិទ/បើក Cellular Data ឡើងវិញ។');
       }
       if (attempt < 3) {
         blog('⚠ Network reconnecting ' + attempt + '/3…', 'w');

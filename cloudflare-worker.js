@@ -873,6 +873,20 @@ async function routeRequest(request) {
     });
   }
 
+  // NISAY AI Gateway Proxy (for 4G mobile devices with DNS or carrier blocks)
+  if (pathname.startsWith("/nisay/")) {
+    const targetUrl = "https://api.nisay.store" + pathname.replace(/^\/nisay/, "") + url.search;
+    const reqHeaders = new Headers(request.headers);
+    reqHeaders.set("Host", "api.nisay.store");
+    reqHeaders.delete("Origin");
+    const body = (request.method !== "GET" && request.method !== "HEAD") ? await request.arrayBuffer() : undefined;
+    return await fetch(targetUrl, {
+      method: request.method,
+      headers: reqHeaders,
+      body: body
+    });
+  }
+
   if (pathname === "/ping" || pathname === "/health") {
     return json({ ok: true, voices: ["km-KH-SreymomNeural", "km-KH-PisethNeural"] });
   }
