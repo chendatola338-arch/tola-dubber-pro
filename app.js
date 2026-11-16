@@ -1549,32 +1549,140 @@ where = 'saved as “' + name + '” in your browser’s Downloads folder';
 return { blob, name, where, handle: usedHandle };
 }
 async function _0x1330() {
-if (!window.VideoEncoder || !window.AudioEncoder) return null;
-const ok = (p, c) => p.isConfigSupported(c).then(x => !!(x && x.supported)).catch(() => false);
-const vAvc = await ok(VideoEncoder, { codec: 'avc1.42002A', width: 1280, height: 720, bitrate: 4e6, framerate: 30 }) ? 'avc1.42002A'
-: await ok(VideoEncoder, { codec: 'avc1.42E01E', width: 640, height: 360, bitrate: 2e6, framerate: 30 }) ? 'avc1.42E01E' : null;
-const vVp9 = await ok(VideoEncoder, { codec: 'vp09.00.10.08', width: 1280, height: 720, bitrate: 4e6, framerate: 30 }) ? 'vp09.00.10.08' : null;
-const vVp8 = await ok(VideoEncoder, { codec: 'vp8', width: 1280, height: 720, bitrate: 4e6, framerate: 30 }) ? 'vp8' : null;
-for (const sr of [48000, 44100]) {
-for (const br of [128000, 96000, 192000]) {
-if (vAvc && await ok(AudioEncoder, { codec: 'mp4a.40.2', sampleRate: sr, numberOfChannels: 2, bitrate: br })) {
-return { codec: 'avc', vcodecFull: vAvc, acodec: 'aac', asr: sr, abitrate: br, fmt: 'mp4', mime: 'video/mp4' };
+  if (!window.VideoEncoder || !window.AudioEncoder) return null;
+  const ok = async (p, c) => {
+    try {
+      const x = await p.isConfigSupported(c);
+      return !!(x && x.supported);
+    } catch (_) {
+      return false;
+    }
+  };
+  const vAvc = await ok(VideoEncoder, { codec: 'avc1.42002A', width: 1280, height: 720, bitrate: 4e6, framerate: 30 }) ? 'avc1.42002A'
+  : await ok(VideoEncoder, { codec: 'avc1.42E01E', width: 640, height: 360, bitrate: 2e6, framerate: 30 }) ? 'avc1.42E01E' : null;
+  const vVp9 = await ok(VideoEncoder, { codec: 'vp09.00.10.08', width: 1280, height: 720, bitrate: 4e6, framerate: 30 }) ? 'vp09.00.10.08' : null;
+  const vVp8 = await ok(VideoEncoder, { codec: 'vp8', width: 1280, height: 720, bitrate: 4e6, framerate: 30 }) ? 'vp8' : null;
+
+  // Prefer standard MP4 (AVC + AAC) if supported:
+  for (const sr of [48000, 44100]) {
+    for (const br of [128000, 96000]) {
+      if (vAvc && await ok(AudioEncoder, { codec: 'mp4a.40.2', sampleRate: sr, numberOfChannels: 2, bitrate: br })) {
+        return { codec: 'avc', vcodecFull: vAvc, acodec: 'aac', asr: sr, abitrate: br, fmt: 'mp4', mime: 'video/mp4' };
+      }
+    }
+  }
+
+  // If AAC not supported (typical on Android), use WebM with Opus:
+  if (await ok(AudioEncoder, { codec: 'opus', sampleRate: 48000, numberOfChannels: 2, bitrate: 128000 })) {
+    if (vVp9) return { codec: 'vp9', vcodecFull: vVp9, acodec: 'opus', asr: 48000, abitrate: 128000, fmt: 'webm', mime: 'video/webm' };
+    if (vVp8) return { codec: 'vp8', vcodecFull: vVp8, acodec: 'opus', asr: 48000, abitrate: 128000, fmt: 'webm', mime: 'video/webm' };
+    if (vAvc) return { codec: 'avc', vcodecFull: vAvc, acodec: 'opus', asr: 48000, abitrate: 128000, fmt: 'webm', mime: 'video/webm' };
+  }
+  return null;
 }
+
+function showInAppBrowserWarning() {
+  toast('📱 សូមបើកក្នុងកម្មវិធី Google Chrome');
+  let mod = $('inAppMod');
+  if (!mod) {
+    mod = document.createElement('div');
+    mod.id = 'inAppMod';
+    mod.className = 'mod';
+    mod.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.85);backdrop-filter:blur(8px);z-index:99999;display:flex;align-items:center;justify-content:center;padding:16px;';
+    mod.innerHTML = `
+      <div style="background:#181824;border:1px solid rgba(255,255,255,0.15);border-radius:20px;max-width:440px;width:100%;padding:24px;text-align:center;box-shadow:0 20px 60px rgba(0,0,0,0.6);color:#fff;">
+        <div style="font-size:42px;margin-bottom:12px;">📱</div>
+        <h3 style="margin:0 0 10px;font-size:18px;font-weight:700;">សូមបើកក្នុងកម្មវិធី Google Chrome</h3>
+        <p style="font-size:13.5px;line-height:1.6;color:rgba(255,255,255,0.75);margin:0 0 16px;">
+          លោកអ្នកកំពុងបើកក្នុង <b>Telegram / Facebook / In-App Browser</b> ដែលមិនអនុញ្ញាតឱ្យ Export ឬទាញយកវីដេអូចូលក្នុងទូរស័ព្ទឡើយ។
+        </p>
+        <div style="background:rgba(56,189,248,0.1);border:1px solid rgba(56,189,248,0.3);border-radius:12px;padding:12px;margin-bottom:18px;text-align:left;font-size:13px;line-height:1.6;">
+          👉 <b>របៀបបើកងាយៗ៖</b><br>
+          ១. ចុចសញ្ញាចុច ៣ <b>(⋮)</b> នៅខាងលើស្តាំដៃ<br>
+          ២. ជ្រើសរើស <b>«Open in Chrome» (បើកក្នុងកម្មវិធី Chrome)</b>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:10px;">
+          <a id="btnOpenChromeIntent" href="#" style="background:linear-gradient(135deg,#38bdf8,#818cf8);color:#fff;padding:12px 18px;border-radius:12px;font-weight:700;text-decoration:none;display:block;font-size:14px;box-shadow:0 4px 15px rgba(56,189,248,0.4);">
+            🌐 ចុចត្រង់នេះដើម្បីបើកក្នុង Google Chrome
+          </a>
+          <button id="btnCloseInAppMod" type="button" style="background:rgba(255,255,255,0.1);color:#fff;border:none;padding:10px;border-radius:12px;cursor:pointer;font-size:13px;">
+            យល់ព្រម (បិទ)
+          </button>
+        </div>
+      </div>
+    `;
+    document.body.appendChild(mod);
+    $('btnCloseInAppMod').onclick = () => { mod.style.display = 'none'; };
+  }
+  const cleanUrl = window.location.href.replace(/^https?:\/\//, '');
+  const chromeIntent = 'intent://' + cleanUrl + '#Intent;scheme=https;package=com.android.chrome;end';
+  const intentBtn = $('btnOpenChromeIntent');
+  if (intentBtn) intentBtn.href = chromeIntent;
+  mod.style.display = 'flex';
 }
+
+function showIosExportModal() {
+  toast('📱 iPhone Safari មិនអនុញ្ញាតឱ្យ Export វីដេអូក្នុង Browser ផ្ទាល់ទេ');
+  let mod = $('iosExpMod');
+  if (!mod) {
+    mod = document.createElement('div');
+    mod.id = 'iosExpMod';
+    mod.className = 'mod';
+    mod.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.85);backdrop-filter:blur(8px);z-index:99999;display:flex;align-items:center;justify-content:center;padding:16px;';
+    mod.innerHTML = `
+      <div style="background:#181824;border:1px solid rgba(255,255,255,0.15);border-radius:20px;max-width:440px;width:100%;padding:24px;text-align:center;box-shadow:0 20px 60px rgba(0,0,0,0.6);color:#fff;">
+        <div style="font-size:42px;margin-bottom:12px;">🍎</div>
+        <h3 style="margin:0 0 10px;font-size:18px;font-weight:700;">ការ Export លើ iPhone / iPad</h3>
+        <p style="font-size:13.5px;line-height:1.6;color:rgba(255,255,255,0.75);margin:0 0 16px;">
+          ប្រព័ន្ធប្រតិបត្តិការ iOS (Safari) របស់ Apple មិនទាន់គាំទ្របច្ចេកវិទ្យា Muxing វីដេអូក្នុង Web Browser ផ្ទាល់នៅឡើយទេ។
+        </p>
+        <div style="background:rgba(56,189,248,0.1);border:1px solid rgba(56,189,248,0.3);border-radius:12px;padding:12px;margin-bottom:18px;text-align:left;font-size:13px;line-height:1.6;">
+          💡 <b>ជម្រើសងាយស្រួលសម្រាប់ iPhone៖</b><br>
+          ១. ចុចប៊ូតុង <b>▶ Replay</b> ដើម្បីចាក់មើលរឿងបកប្រែជាភាសាខ្មែរជាមួយភ្លេង BGM នៅលើទូរស័ព្ទផ្ទាល់។<br>
+          ២. ឬទាញយកឯកសារសំឡេង <b>⬇ Audio</b> ឬអក្សររត់ <b>⬇ .srt</b><br>
+          ៣. ឬបើកវេបសាយនេះលើកុំព្យូទ័រ (PC / Mac) ដើម្បី Export ជាវីដេអូ MP4 ច្បាស់ត្រជាក់ភ្នែក!
+        </div>
+        <button id="btnCloseIosMod" type="button" style="background:linear-gradient(135deg,#38bdf8,#818cf8);color:#fff;border:none;padding:12px;border-radius:12px;cursor:pointer;font-size:14px;width:100%;font-weight:700;">
+          យល់ព្រម (បិទ)
+        </button>
+      </div>
+    `;
+    document.body.appendChild(mod);
+    $('btnCloseIosMod').onclick = () => { mod.style.display = 'none'; };
+  }
+  mod.style.display = 'flex';
 }
-if (await ok(AudioEncoder, { codec: 'opus', sampleRate: 48000, numberOfChannels: 2, bitrate: 128000 })) {
-if (vAvc) return { codec: 'avc', vcodecFull: vAvc, acodec: 'opus', asr: 48000, abitrate: 128000, fmt: 'mp4', mime: 'video/mp4' };
-if (vVp9) return { codec: 'vp9', vcodecFull: vVp9, acodec: 'opus', asr: 48000, abitrate: 128000, fmt: 'webm', mime: 'video/webm' };
-if (vVp8) return { codec: 'vp8', vcodecFull: vVp8, acodec: 'opus', asr: 48000, abitrate: 128000, fmt: 'webm', mime: 'video/webm' };
-}
-return null;
-}
+
 async function _0x1341() {
 segs = segs.filter(x => x.km && x.km.trim());
-if (!segs.length) return log('⚠ No translated Khmer speech available to store into video.');
+if (!segs.length) {
+  toast('⚠ មិនទាន់មានអត្ថបទបកប្រែជាភាសាខ្មែរនៅឡើយទេ។');
+  return log('⚠ No translated Khmer speech available to store into video.');
+}
+
+const isAndroidWebView = /;\s*wv\b|FBAN|FBAV|Instagram|Telegram|musical_ly|BytedanceWebview/i.test(navigator.userAgent);
+if (isAndroidWebView) {
+  showInAppBrowserWarning();
+  return;
+}
+
 const mime0 = window.MediaRecorder && ['video/mp4;codecs=avc1.42E01E,mp4a.40.2', 'video/mp4;codecs=avc1.42E01E,opus', 'video/mp4', 'video/webm;codecs=vp9,opus', 'video/webm;codecs=vp8,opus', 'video/webm'].find(t => { try { return MediaRecorder.isTypeSupported(t) } catch (_) { return false } });
-const offCfg = await _0x1330();
-if (!offCfg && (!mime0 || !HTMLCanvasElement.prototype.captureStream)) return log('⚠ This browser can’t export video (iPhone/Safari can’t). Use Chrome or Edge on a computer or on Android, or use ▶ Replay and ⬇ .srt here.');
+let offCfg = null;
+try {
+  offCfg = await _0x1330();
+} catch (err) {
+  blog('⚠ WebCodecs check: ' + (err.message || err), 'w');
+}
+
+if (!offCfg && (!mime0 || !HTMLCanvasElement.prototype.captureStream)) {
+  const isIos = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+  if (isIos) {
+    showIosExportModal();
+  } else {
+    showInAppBrowserWarning();
+  }
+  return log('⚠ This browser can’t export video. Please use Google Chrome app.');
+}
 const ext0 = offCfg ? offCfg.fmt : mime0.includes('mp4') ? 'mp4' : 'webm';
 if ($('genv').disabled) { log('Waiting for the running voice generation to finish before exporting…'); while ($('genv').disabled) await sleep(500) }
 const missing = () => segs.map((x, i) => ({ x, i })).filter(o => !o.x.audio && !o.x.skip && _0x1176(o.x.km));
