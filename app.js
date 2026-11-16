@@ -156,7 +156,7 @@ $('file').onchange = e => load(e.target.files[0]);
 function load(f, isRestore) {
 if (!f || !((f.type || '').startsWith('video/') || /\.(mp4|mov|m4v|webm|mkv|3gp|avi)$/i.test(f.name || ''))) return log('Please choose a video file.');
 _0x12b9(); dubbing = false; plan = []; played = new Set(); spoken = new Set(); _0x1473++;
-curFile = f; ENV = null; v.src = URL.createObjectURL(f); v.muted = ($('vol').value === '0'); v.volume = $('vol').value / 100; $('stage').hidden = false; $('dropTxt').textContent = '✓ ' + (f.name || 'Saved video') + ' · click to change';
+curFile = f; ENV = null; v.src = URL.createObjectURL(f); v.muted = false; if (typeof applyBgmVolume === 'function') applyBgmVolume((+$('vol').value || 65) / 100); $('stage').hidden = false; $('dropTxt').textContent = '✓ ' + (f.name || 'Saved video') + ' · click to change';
 _0x14b7({ hidden: false, disabled: false }); segs = []; $('resCard').hidden = true; if ($('editHint')) $('editHint').hidden = true; $('cap').textContent = ''; log('');
 ['s1', 's2', 's3'].forEach(i => $(i).className = 's'); $('bar').style.width = '0%';
 if (!isRestore) {
@@ -210,6 +210,15 @@ localStorage.setItem('kd_vol', '0');
 localStorage.setItem('kd_voice', 'edge');
 localStorage.setItem('kd_evoice', 'auto');
 localStorage.setItem('kd_defv', '3');
+}
+} catch (_) { }
+try {
+if (!localStorage.getItem('kd_bgm_init_v4')) {
+localStorage.setItem('kd_bgm_init_v4', '1');
+localStorage.setItem('kd_bgmMode', '1');
+localStorage.setItem('kd_vol', '65');
+if ($('bgmMode')) $('bgmMode').checked = true;
+if ($('vol')) $('vol').value = '65';
 }
 } catch (_) { }
 document.querySelectorAll('[data-save]').forEach(el => { const k = 'kd_' + el.id, c = el.type === 'checkbox'; try { const x = localStorage.getItem(k); if (x !== null) c ? el.checked = x === '1' : el.value = x } catch (_) { } el.addEventListener('input', () => { try { localStorage.setItem(k, c ? (el.checked ? '1' : '0') : el.value) } catch (_) { } }) });
@@ -1124,7 +1133,7 @@ plan = await _0x1297();
 if (gen !== _0x1473) return;
 const have = segs.filter(x => x.km && x.km.trim() && !x.skip).length;
 blog('Voice plan: ' + plan.length + ' of ' + have + ' lines have audio' + (plan.length < have ? ' (press 🔊 Voice to fill the missing ones)' : ''), plan.length < have ? 'w' : 'k');
-v.muted = ($('vol').value === '0'); v.volume = $('vol').value / 100;
+v.muted = false; if (typeof applyBgmVolume === 'function') applyBgmVolume((+$('vol').value || 65) / 100);
 if (Math.abs(v.currentTime) > 0.05 || v.ended) {
 await new Promise(res => {
 let done = false;
@@ -1159,6 +1168,34 @@ await v.play();
 log('✓ Khmer dub is ready! Press ▶ Replay to play with sound.');
 }
 }
+let _bgmGainNode = null;
+let _mediaSourceNode = null;
+
+function applyBgmVolume(targetGain) {
+  const ctx = _mac();
+  if (ctx.state === 'suspended') {
+    try { ctx.resume(); } catch (_) {}
+  }
+  if (!_mediaSourceNode && v) {
+    try {
+      _mediaSourceNode = ctx.createMediaElementSource(v);
+      _bgmGainNode = ctx.createGain();
+      _mediaSourceNode.connect(_bgmGainNode);
+      _bgmGainNode.connect(ctx.destination);
+    } catch (_) {}
+  }
+
+  if (_bgmGainNode) {
+    v.muted = false;
+    _bgmGainNode.gain.value = targetGain;
+  } else {
+    try {
+      v.volume = targetGain;
+      v.muted = (targetGain <= 0.001);
+    } catch (_) {}
+  }
+}
+
 function tick() {
 if (!dubbing || !segs.length || !segs[0].km || v.paused || v.seeking || v.ended) return;
 const c = v.currentTime; let cur = '';
@@ -1176,14 +1213,12 @@ const userVol = (+$('vol').value || 0) / 100;
 if (isBgmActive && userVol > 0.01) {
   // Check if within any dialogue cue (with small 60ms pre-roll and 100ms post-roll padding)
   const inSpeech = segs.some(s => (c >= (s.t - 0.06) && c <= ((Number(s.e) || (s.t + 2.0)) + 0.10)));
-  const targetVol = inSpeech ? 0 : userVol;
-  if (Math.abs(v.volume - targetVol) > 0.01) {
-    v.volume = targetVol;
-  }
+  const targetGain = inSpeech ? 0 : userVol;
+  applyBgmVolume(targetGain);
 } else if (!isBgmActive) {
-  if (Math.abs(v.volume - userVol) > 0.01) {
-    v.volume = userVol;
-  }
+  applyBgmVolume(userVol);
+} else {
+  applyBgmVolume(0);
 }
 
 const ctx = _mac();
@@ -1202,22 +1237,30 @@ setInterval(tick, 25); v.addEventListener('timeupdate', tick);
 v.addEventListener('seeked', () => { if (dubbing) { _0x12b9(); played = new Set(); spoken = new Set(segs.map((s, i) => s.t < v.currentTime - 1 ? i : -1).filter(i => i >= 0)) } });
 v.addEventListener('waiting', () => { if (dubbing) { _0x12b9(); played = new Set() } });
 v.addEventListener('playing', () => { if (dubbing) { played = new Set(); tick() } });
-v.addEventListener('pause', () => { try { speechSynthesis.pause() } catch (_) { } _0x12b9(); played = new Set() });
+v.addEventListener('pause', () => { 
+  try { speechSynthesis.pause() } catch (_) { } 
+  _0x12b9(); 
+  played = new Set();
+  applyBgmVolume(0);
+});
 v.addEventListener('play', () => {
 try { speechSynthesis.resume() } catch (_) { }
 _0x1220();
+v.muted = false;
+const userVol = (+$('vol').value || 0) / 100;
+applyBgmVolume(userVol);
 if (segs.length && segs[0].km && !$('resCard').hidden) {
 dubbing = true;
 if (v.currentTime < 0.05) spoken = new Set();
 }
 played = new Set();
 });
-v.addEventListener('ended', () => { if (segs.length && segs[0].km) { _0x12b9(); v.playbackRate = 1 } });
+v.addEventListener('ended', () => { if (segs.length && segs[0].km) { _0x12b9(); v.playbackRate = 1; applyBgmVolume(0); } });
 
 function updateVolLabel() {
   const val = +$('vol').value;
-  v.muted = (val === 0);
   const isBgm = $('bgmMode') ? $('bgmMode').checked : true;
+  applyBgmVolume(val / 100);
   const lbl = $('volLabel');
   if (lbl) {
     if (val === 0) {
@@ -1231,6 +1274,7 @@ function updateVolLabel() {
 }
 $('vol').oninput = updateVolLabel;
 if ($('bgmMode')) $('bgmMode').onchange = updateVolLabel;
+setTimeout(updateVolLabel, 100);
 
 let _mb = null;
 const _0x12ec = () => _mb || (_mb = (async () => {
@@ -1831,11 +1875,24 @@ async function listenNisay(resumed) {
       offset += p.length;
     }
     _cachedPcm = merged;
-    // Always keep full 16kHz audio so Whisper transcribe transcribes the 100% complete story with zero cutoff
-    const wavBuf = wav(merged, 16000);
+    let targetPcm = merged;
+    let targetRate = 16000;
+    // Mobile 4G/5G optimization: Downsample audio > 3 minutes to 8kHz to cut upload size by 50%
+    // Keeps file under 10MB for rapid, bulletproof upload on mobile cellular connections without connection drop
+    if (merged.length > 16000 * 180) {
+      const halfLen = Math.floor(merged.length / 2);
+      const down = new Float32Array(halfLen);
+      for (let i = 0; i < halfLen; i++) {
+        const idx = i * 2;
+        down[i] = (merged[idx] + (merged[idx + 1] || merged[idx])) * 0.5;
+      }
+      targetPcm = down;
+      targetRate = 8000;
+    }
+    const wavBuf = wav(targetPcm, targetRate);
     uploadFile = new File([wavBuf], 'audio.wav', { type: 'audio/wav' });
     uploadName = 'audio.wav';
-    blog('✓ Full story audio ready: ' + (merged.length / 16000).toFixed(1) + 's (' + (uploadFile.size / 1024 / 1024).toFixed(2) + ' MB WAV @ 16kHz)', 'k');
+    blog('✓ Lightweight mobile audio ready: ' + (merged.length / 16000).toFixed(1) + 's (' + (uploadFile.size / 1024 / 1024).toFixed(2) + ' MB WAV @ ' + (targetRate / 1000) + 'kHz)', 'k');
   } catch (err) {
     blog('⚠ Audio extraction fallback: using original video file (' + (err.message || err) + ')', 'w');
     uploadFile = curFile;
@@ -1865,20 +1922,23 @@ async function listenNisay(resumed) {
   const timeoutSec = Math.round(timeoutMs / 1000);
 
   const endpoints = [
-    'https://api.nisay.store/v1/audio/transcriptions',
-    'https://autumn-smoke-5a70.chendatola338.workers.dev/nisay/v1/audio/transcriptions'
+    { url: 'https://autumn-smoke-5a70.chendatola338.workers.dev/nisay/v1/audio/transcriptions?key=' + encodeURIComponent(nisayKey), useAuthHeader: false },
+    { url: 'https://api.nisay.store/v1/audio/transcriptions', useAuthHeader: true },
+    { url: 'https://autumn-smoke-5a70.chendatola338.workers.dev/nisay/v1/audio/transcriptions?key=' + encodeURIComponent(nisayKey), useAuthHeader: true }
   ];
 
   for (let attempt = 1; attempt <= 3; attempt++) {
-    const targetUrl = endpoints[(attempt - 1) % endpoints.length];
+    const ep = endpoints[(attempt - 1) % endpoints.length];
     try {
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
-      resp = await fetch(targetUrl, {
+      const reqHeaders = {};
+      if (ep.useAuthHeader) {
+        reqHeaders['Authorization'] = 'Bearer ' + nisayKey;
+      }
+      resp = await fetch(ep.url, {
         method: 'POST',
-        headers: {
-          'Authorization': 'Bearer ' + nisayKey
-        },
+        headers: reqHeaders,
         body: createFormData(), // Fresh FormData for each retry prevents WebKit/Safari "Load failed" body reuse bug
         signal: controller.signal
       });
@@ -2034,8 +2094,8 @@ async function translateNisay() {
   async function processBatch(ids) {
     const batchTexts = ids.map(i => segs[i].text);
     const endpoints = [
-      'https://api.nisay.store/v1/translate',
-      'https://autumn-smoke-5a70.chendatola338.workers.dev/nisay/v1/translate'
+      'https://autumn-smoke-5a70.chendatola338.workers.dev/nisay/v1/translate?key=' + encodeURIComponent(nisayKey),
+      'https://api.nisay.store/v1/translate'
     ];
     for (let attempt = 1; attempt <= 3; attempt++) {
       const targetUrl = endpoints[(attempt - 1) % endpoints.length];
@@ -2721,6 +2781,13 @@ async function clearAllSavedSession() {
   plan = [];
   played = new Set();
   spoken = new Set();
+  if (v) {
+    try {
+      v.pause();
+      v.src = '';
+      v.load();
+    } catch (_) {}
+  }
   if ($('resCard')) $('resCard').hidden = true;
   if ($('speakerBar')) $('speakerBar').style.display = 'none';
   if ($('editHint')) $('editHint').hidden = true;
@@ -2729,10 +2796,10 @@ async function clearAllSavedSession() {
   setProgress(0, 'Cache cleared. Ready for fresh dubbing!', 'Ready');
   log('✓ Session cache cleared. Refreshing page…');
 
-  // Instant clean reload: clears RAM, resets audio context, and reloads clean UI
+  // Hard reload with query string: clears RAM, resets audio context, and reloads clean UI
   setTimeout(() => {
-    window.location.reload();
-  }, 150);
+    window.location.href = window.location.pathname + '?r=' + Date.now();
+  }, 200);
 }
 
 // --- TOLA Dubber PRO VIP Subscription & ABA PayWay Integration ---

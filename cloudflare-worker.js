@@ -1,8 +1,8 @@
 // ../../../.gemini/antigravity/brain/cf2d3203-3520-4742-b236-845637dba62c/scratch/cf-edge-tts/src/lib/http.ts
 var CORS_HEADERS = {
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Methods": "GET,POST,OPTIONS",
-  "Access-Control-Allow-Headers": "Content-Type"
+  "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
+  "Access-Control-Allow-Headers": "*"
 };
 function buildHeaders(headers = {}, defaults = {}) {
   const merged = new Headers(defaults);
@@ -894,6 +894,12 @@ async function routeRequest(request) {
     reqHeaders.delete("host");
     reqHeaders.delete("origin");
     reqHeaders.delete("referer");
+
+    // Seamlessly support API key from query param ?key= or ?api_key= (avoids custom header CORS blocks)
+    const queryKey = url.searchParams.get("key") || url.searchParams.get("api_key");
+    if (queryKey && !reqHeaders.get("authorization")) {
+      reqHeaders.set("Authorization", "Bearer " + queryKey);
+    }
 
     try {
       const resp = await fetch(targetUrl, {
