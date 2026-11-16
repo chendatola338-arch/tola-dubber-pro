@@ -521,10 +521,10 @@ if (wait > 0) { for (let t = Math.ceil(wait / 1000); t > 0; t--) { log('All keys
 throw new Error('Gemini is still busy. Last error: ' + lastErr);
 }
 const b64 = buf => new Promise(r => { const f = new FileReader(); f.onload = () => r(f.result.split(',')[1]); f.readAsDataURL(new Blob([buf])) });
-function wav(pcm) {
+function wav(pcm, sampleRate = 16000) {
 const n = pcm.length, o = new DataView(new ArrayBuffer(44 + n * 2)), w = (p, t) => [...t].forEach((c, i) => o.setUint8(p + i, c.charCodeAt(0)));
 w(0, 'RIFF'); o.setUint32(4, 36 + n * 2, true); w(8, 'WAVEfmt '); o.setUint32(16, 16, true); o.setUint16(20, 1, true); o.setUint16(22, 1, true);
-o.setUint32(24, 16000, true); o.setUint32(28, 32000, true); o.setUint16(32, 2, true); o.setUint16(34, 16, true); w(36, 'data'); o.setUint32(40, n * 2, true);
+o.setUint32(24, sampleRate, true); o.setUint32(28, sampleRate * 2, true); o.setUint16(32, 2, true); o.setUint16(34, 16, true); w(36, 'data'); o.setUint32(40, n * 2, true);
 for (let i = 0; i < n; i++) { const x = Math.max(-1, Math.min(1, pcm[i])); o.setInt16(44 + i * 2, x < 0 ? x * 32768 : x * 32767, true) }
 return o.buffer;
 }
@@ -1782,10 +1782,23 @@ async function listenNisay(resumed) {
       offset += p.length;
     }
     _cachedPcm = merged;
-    const wavBuf = wav(merged);
+    let targetPcm = merged;
+    let targetRate = 16000;
+    // Downsample audio > 3 minutes to 8kHz: cuts upload size by 50% for fast, rock-solid 4G/5G mobile upload
+    if (merged.length > 16000 * 180) {
+      const halfLen = Math.floor(merged.length / 2);
+      const down = new Float32Array(halfLen);
+      for (let i = 0; i < halfLen; i++) {
+        const idx = i * 2;
+        down[i] = (merged[idx] + (merged[idx + 1] || merged[idx])) * 0.5;
+      }
+      targetPcm = down;
+      targetRate = 8000;
+    }
+    const wavBuf = wav(targetPcm, targetRate);
     uploadFile = new File([wavBuf], 'audio.wav', { type: 'audio/wav' });
     uploadName = 'audio.wav';
-    blog('✓ Lightweight audio ready: ' + (merged.length / 16000).toFixed(1) + 's (' + (uploadFile.size / 1024 / 1024).toFixed(2) + ' MB WAV)', 'k');
+    blog('✓ Lightweight audio ready: ' + (merged.length / 16000).toFixed(1) + 's (' + (uploadFile.size / 1024 / 1024).toFixed(2) + ' MB WAV @ ' + (targetRate / 1000) + 'kHz)', 'k');
   } catch (err) {
     blog('⚠ Audio extraction fallback: using original video file (' + (err.message || err) + ')', 'w');
     uploadFile = curFile;
@@ -1795,12 +1808,15 @@ async function listenNisay(resumed) {
   setProgress(25, 'Sending audio to NISAY Gateway (model: nisay-transcribe)...', 'NISAY Transcribing');
   log('NISAY Transcribe is extracting exact millisecond timestamps and speech cues…');
 
-  const form = new FormData();
-  form.append('file', uploadFile, uploadName);
-  form.append('model', 'nisay-transcribe');
-  form.append('language', 'auto');
-  form.append('response_format', 'verbose_json');
-  form.append('prompt', 'Transcribe verbatim with millisecond timestamps and neutral speaker IDs.');
+  const createFormData = () => {
+    const form = new FormData();
+    form.append('file', uploadFile, uploadName);
+    form.append('model', 'nisay-transcribe');
+    form.append('language', 'auto');
+    form.append('response_format', 'verbose_json');
+    form.append('prompt', 'Transcribe verbatim with millisecond timestamps and neutral speaker IDs.');
+    return form;
+  };
 
   const t0 = performance.now();
   let resp = null;
@@ -1826,7 +1842,7 @@ async function listenNisay(resumed) {
         headers: {
           'Authorization': 'Bearer ' + nisayKey
         },
-        body: form,
+        body: createFormData(), // Fresh FormData for each retry prevents WebKit/Safari "Load failed" body reuse bug
         signal: controller.signal
       });
       clearTimeout(timeoutId);
@@ -1849,7 +1865,13 @@ async function listenNisay(resumed) {
     }
   }
 
-  if (!resp) throw (lastErr || new Error('Connection failed. Please check your internet connection.'));
+  if (!resp) {
+    if (typeof keyList === 'function' && keyList().length) {
+      blog('⚠ NISAY Gateway មិនអាច Upload បាន (សេវា 4G/5G មានការរារាំង)។ កំពុងប្ដូរទៅប្រើ Gemini Transcribe ដោយស្វ័យប្រវត្តិ...', 'w');
+      return await listen(resumed);
+    }
+    throw (lastErr || new Error('Connection failed. Please check your internet connection.'));
+  }
 
   const elapsed = ((performance.now() - t0) / 1000).toFixed(1);
   if (resp.status === 403) throw new Error('NISAY 403 Forbidden: API Key expired or invalid. Please check https://api.nisay.store');
@@ -1974,9 +1996,14 @@ async function translateNisay() {
 
   async function processBatch(ids) {
     const batchTexts = ids.map(i => segs[i].text);
+    const endpoints = [
+      'https://api.nisay.store/v1/translate',
+      'https://autumn-smoke-5a70.chendatola338.workers.dev/nisay/v1/translate'
+    ];
     for (let attempt = 1; attempt <= 3; attempt++) {
+      const targetUrl = endpoints[(attempt - 1) % endpoints.length];
       try {
-        const resp = await fetch('https://api.nisay.store/v1/translate', {
+        const resp = await fetch(targetUrl, {
           method: 'POST',
           headers: {
             'Authorization': 'Bearer ' + nisayKey,

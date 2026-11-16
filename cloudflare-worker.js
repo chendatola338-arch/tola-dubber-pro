@@ -874,17 +874,45 @@ async function routeRequest(request) {
   }
 
   // NISAY AI Gateway Proxy (for 4G mobile devices with DNS or carrier blocks)
+  if (pathname === "/nisay/ping" || pathname === "/nisay/health") {
+    return json({ ok: true, gateway: "nisay-proxy", timestamp: Date.now() });
+  }
+
   if (pathname.startsWith("/nisay/")) {
+    if (request.method === "OPTIONS") {
+      return new Response(null, {
+        status: 204,
+        headers: {
+          "Access-Control-Allow-Origin": "*",
+          "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
+          "Access-Control-Allow-Headers": "*"
+        }
+      });
+    }
     const targetUrl = "https://api.nisay.store" + pathname.replace(/^\/nisay/, "") + url.search;
     const reqHeaders = new Headers(request.headers);
-    reqHeaders.set("Host", "api.nisay.store");
-    reqHeaders.delete("Origin");
-    const body = (request.method !== "GET" && request.method !== "HEAD") ? await request.arrayBuffer() : undefined;
-    return await fetch(targetUrl, {
-      method: request.method,
-      headers: reqHeaders,
-      body: body
-    });
+    reqHeaders.delete("host");
+    reqHeaders.delete("origin");
+    reqHeaders.delete("referer");
+
+    try {
+      const resp = await fetch(targetUrl, {
+        method: request.method,
+        headers: reqHeaders,
+        body: (request.method !== "GET" && request.method !== "HEAD") ? request.body : undefined
+      });
+      const respHeaders = new Headers(resp.headers);
+      respHeaders.set("Access-Control-Allow-Origin", "*");
+      respHeaders.set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
+      respHeaders.set("Access-Control-Allow-Headers", "*");
+      return new Response(resp.body, {
+        status: resp.status,
+        statusText: resp.statusText,
+        headers: respHeaders
+      });
+    } catch (proxyErr) {
+      return json({ error: { code: "NISAY_PROXY_ERROR", message: proxyErr.message || String(proxyErr) } }, 502);
+    }
   }
 
   if (pathname === "/ping" || pathname === "/health") {
