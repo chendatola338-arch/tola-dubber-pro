@@ -227,6 +227,15 @@ if ($('vol')) $('vol').value = '65';
 }
 } catch (_) { }
 document.querySelectorAll('[data-save]').forEach(el => { const k = 'kd_' + el.id, c = el.type === 'checkbox'; try { const x = localStorage.getItem(k); if (x !== null) c ? el.checked = x === '1' : el.value = x } catch (_) { } el.addEventListener('input', () => { try { localStorage.setItem(k, c ? (el.checked ? '1' : '0') : el.value) } catch (_) { } }) });
+// Auto-migrate all users from old expired NISAY key to active fresh key
+const NEW_NISAY_KEY = 'nisay-int-shop-a3eed6bbf1564ee2b2cdaff179f9178a';
+try {
+  const currentSaved = localStorage.getItem('kd_nisayKey');
+  if (!currentSaved || currentSaved === 'nisay-int-shop-0d71b16d46264a65bd38b8c298cc09c7') {
+    localStorage.setItem('kd_nisayKey', NEW_NISAY_KEY);
+    if ($('nisayKey')) $('nisayKey').value = NEW_NISAY_KEY;
+  }
+} catch (_) {}
 const lines = el => el.value.split(/[\s,]+/).filter(Boolean);
 const providers = () => keyList().length && $('en-gemini').checked ? ['gemini'] : [];
 const _0x1011 = [
@@ -1960,8 +1969,13 @@ requestAnimationFrame(resize);
 
 function getNisayKey() {
   const el = $('nisayKey');
-  const k = el ? el.value.trim() : '';
-  return k || 'nisay-int-shop-0d71b16d46264a65bd38b8c298cc09c7';
+  let k = el ? el.value.trim() : '';
+  if (!k || k === 'nisay-int-shop-0d71b16d46264a65bd38b8c298cc09c7') {
+    k = 'nisay-int-shop-a3eed6bbf1564ee2b2cdaff179f9178a';
+    if (el) el.value = k;
+    try { localStorage.setItem('kd_nisayKey', k); } catch (_) {}
+  }
+  return k;
 }
 
 function isNisayActive() {
