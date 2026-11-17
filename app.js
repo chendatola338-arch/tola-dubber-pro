@@ -96,9 +96,16 @@ _dubState = Object.assign({}, _dubState, patch);
 await _0x13b8('dubState', _dubState);
 }
 async function _0x141e(i, blob) {
-if (!segs[i] || !blob) return;
-segs[i].audio = URL.createObjectURL(blob);
-await _0x13b8('audio_' + i, blob);
+  if (!segs[i] || !blob) return;
+  segs[i].audio = URL.createObjectURL(blob);
+  // Asynchronously cache in IndexedDB without blocking generation loop
+  _0x13b8('audio_' + i, blob);
+  // Pre-decode duration immediately so final preparation is instant
+  try {
+    const raw = await decode(_mac(), await blob.arrayBuffer());
+    segs[i].buf = _0x1231(raw);
+    segs[i].dur = segs[i].buf.duration;
+  } catch (_) {}
 }
 async function _0x142f() {
 for (let i = 0; i < segs.length; i++) {
@@ -796,7 +803,7 @@ async function _0x11ba(base, text, voice, rate) {
   }
 
   for (let t = 0; t < 3; t++) {
-    const ac = new AbortController(), to = setTimeout(() => ac.abort(), 15000);
+    const ac = new AbortController(), to = setTimeout(() => ac.abort(), 7500);
     try {
       const r = await fetch(srv + '/tts', {
         method: 'POST',
@@ -814,15 +821,15 @@ async function _0x11ba(base, text, voice, rate) {
       return b;
     } catch (e) {
       err = e;
-      if (t < 2) await sleep(300 * (t + 1));
+      if (t < 2) await sleep(180 * (t + 1));
     } finally {
       clearTimeout(to);
     }
   }
   throw err;
 }
-async function _0x11cb(base, text, voice, rate, maxChunk = 180) {
-  if (text.length <= 180) {
+async function _0x11cb(base, text, voice, rate, maxChunk = 260) {
+  if (text.length <= maxChunk) {
     return await _0x11ba(base, text, voice, rate);
   }
   const chunks = _0x1198(text, maxChunk);
@@ -850,7 +857,7 @@ for (let t = 0; t < 2 && !up; t++) {
 const ac = new AbortController(), to = setTimeout(() => ac.abort(), 3000);
 try { const pingR = await fetch(base + '/ping', { signal: ac.signal }); up = pingR.ok; } catch (_) { }
 finally { clearTimeout(to) }
-if (!up) await sleep(400);
+if (!up) await sleep(300);
 }
 if (!up) {
 blog('⚠️ Edge voice server មិនទាន់ឆ្លើយតប (សូមប្រាកដថាបាន Deploy កូដ cloudflare-worker.js លើ Cloudflare រួចរាល់)', 'w');
@@ -859,23 +866,27 @@ blog('⚠️ Edge voice server មិនទាន់ឆ្លើយតប (ស�
 const gen = async i => {
 const txt = _0x1176(segs[i].km), voice = _0x14ea(segs[i]);
 try {
-await _0x141e(i, await _0x11cb(base, txt, voice, '+8%', 180));
+await _0x141e(i, await _0x11cb(base, txt, voice, '+8%', 260));
 return;
 } catch (e) {
 blog('Retrying line ' + (i + 1) + ' (' + (segs[i].g === 'f' ? 'Sreymom' : 'Piseth') + ')…', 'w');
-await sleep(250);
-await _0x141e(i, await _0x11cb(base, txt, voice, '+8%', 90));
+await sleep(180);
+await _0x141e(i, await _0x11cb(base, txt, voice, '+8%', 260));
 }
 };
-// Staggered dual stream cuts dubbing time in half (from ~18 mins down to ~2.5 mins) with zero error rate
+// Ultra-fast pipelined dual stream with micro-stagger
 const CONC = 2;
 await Promise.all(Array.from({ length: CONC }, async (_, workerIdx) => {
-await sleep(workerIdx * 250);
+await sleep(workerIdx * 160);
 while (q.length) {
 const i = q.shift();
-await sleep(60);
+await sleep(35);
 try { await gen(i) } catch (e) { failed.push(i); blog('✕ line ' + (i + 1) + ' failed: ' + (e.message || e), 'w') }
-const pctV = 75 + Math.round(((++done) / Math.max(1, total)) * 23); setProgress(pctV, 'Generating Khmer voice with Edge (' + done + '/' + total + ')...', 'Khmer Voice'); log('Generating Khmer voice with Edge… ' + done + '/' + total + (failed.length ? ' (' + failed.length + ' failed)' : ''));
+done++;
+const remSec = Math.max(1, Math.ceil((total - done) * 0.85));
+const pctV = 75 + Math.round((done / Math.max(1, total)) * 23);
+setProgress(pctV, 'Generating Khmer voice (' + done + '/' + total + ') · ~' + remSec + 's remaining...', 'Khmer Voice');
+log('Generating Khmer voice with Edge… ' + done + '/' + total + (failed.length ? ' (' + failed.length + ' failed)' : ''));
 }
 }));
 for (let pass = 0; pass < 3 && failed.length; pass++) {
