@@ -2299,20 +2299,21 @@ async function translateNisay() {
   async function processBatch(ids) {
     const batchTexts = ids.map(i => segs[i].text);
     const endpoints = [
-      'https://autumn-smoke-5a70.chendatola338.workers.dev/nisay/v1/translate?key=' + encodeURIComponent(nisayKey),
-      'https://api.nisay.store/v1/translate'
+      { url: 'https://autumn-smoke-5a70.chendatola338.workers.dev/nisay/v1/translate?key=' + encodeURIComponent(nisayKey), useAuth: false },
+      { url: 'https://api.nisay.store/v1/translate', useAuth: true }
     ];
     for (let attempt = 1; attempt <= 3; attempt++) {
-      const targetUrl = endpoints[(attempt - 1) % endpoints.length];
+      const ep = endpoints[(attempt - 1) % endpoints.length];
       const controller = new AbortController();
-      const to = setTimeout(() => controller.abort(), 22000);
+      const to = setTimeout(() => controller.abort(), 35000);
       try {
-        const resp = await fetch(targetUrl, {
+        const reqHeaders = { 'Content-Type': 'application/json' };
+        if (ep.useAuth) {
+          reqHeaders['Authorization'] = 'Bearer ' + nisayKey;
+        }
+        const resp = await fetch(ep.url, {
           method: 'POST',
-          headers: {
-            'Authorization': 'Bearer ' + nisayKey,
-            'Content-Type': 'application/json'
-          },
+          headers: reqHeaders,
           body: JSON.stringify({
             text: batchTexts,
             source_lang: 'auto',
