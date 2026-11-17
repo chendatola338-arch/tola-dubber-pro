@@ -2998,6 +2998,29 @@ const VIP_STORAGE_KEY = 'tola_dubber_pro_vip';
 const ABA_PAYWAY_URL = 'https://link.payway.com.kh/ABAPAYlP553382Z';
 const DEFAULT_PAYWAY_API = 'https://autumn-smoke-5a70.chendatola338.workers.dev';
 
+// Cross-domain VIP sync & migration: GitHub Pages -> Vercel
+(function checkCrossDomainMigration() {
+  try {
+    if (window.location.hostname.includes('github.io')) {
+      const raw = localStorage.getItem(VIP_STORAGE_KEY);
+      if (raw) {
+        const sub = JSON.parse(raw);
+        if (sub && sub.active && sub.expires_at > Date.now()) {
+          const token = btoa(unescape(encodeURIComponent(JSON.stringify(sub))));
+          window.location.replace('https://tola-dubber-pro.vercel.app/?vip_sync=' + encodeURIComponent(token));
+          return;
+        }
+      }
+      const params = new URLSearchParams(window.location.search);
+      if (params.get('sync_to_vercel')) {
+        alert('Domain ចាស់នេះមិនទាន់មានរក្សាទុកទិន្នន័យ VIP ទេ។ សូមត្រលប់ទៅ Vercel ហើយបញ្ចូល VIP Code របស់លោកអ្នក (ឧ. VIP899 ឬ VIP600)');
+        window.location.replace('https://tola-dubber-pro.vercel.app/');
+        return;
+      }
+    }
+  } catch (_) {}
+})();
+
 function getPaywayApiBase() {
   const custom = localStorage.getItem('tola_payway_proxy_url');
   if (custom && custom.trim().startsWith('http')) {
@@ -3466,6 +3489,23 @@ function checkUrlPaymentCallback() {
       }
     }
 
+    const vipCode = params.get('vip_code');
+    if (vipCode) {
+      handleVipCodeActivation(vipCode);
+      window.history.replaceState({}, document.title, window.location.pathname);
+      return;
+    }
+
+    const restorePlan = params.get('restore_plan');
+    if (restorePlan) {
+      if (restorePlan === '1m' || restorePlan === '1_month' || restorePlan === '600') handleVipCodeActivation('VIP600');
+      else if (restorePlan === '2m' || restorePlan === '2_months' || restorePlan === '899') handleVipCodeActivation('VIP899');
+      else if (restorePlan === '3m' || restorePlan === '3_months' || restorePlan === '1499') handleVipCodeActivation('VIP1499');
+      else if (restorePlan === '1y' || restorePlan === '12m' || restorePlan === 'master' || restorePlan === 'pro') handleVipCodeActivation('TOLA-VIP-PRO');
+      window.history.replaceState({}, document.title, window.location.pathname);
+      return;
+    }
+
     if (params.get('paid') === 'success') {
       const tranId = params.get('tran_id') || ('TOLA_RETURN_' + Date.now());
       const months = parseInt(params.get('months') || '2', 10);
@@ -3583,6 +3623,16 @@ if ($('verifyLastPaidBtn')) {
     if (code) {
       handleVipCodeActivation(code);
     }
+  };
+}
+
+// 1-Click Restore VIP from GitHub Pages domain
+if ($('restoreOldVipBtn')) {
+  $('restoreOldVipBtn').onclick = () => {
+    toast('🔄 កំពុងភ្ជាប់ទៅ Domain ចាស់ដើម្បី Restore VIP...');
+    setTimeout(() => {
+      window.location.href = 'https://chendatola338-arch.github.io/tola-dubber-pro/?sync_to_vercel=1';
+    }, 350);
   };
 }
 
