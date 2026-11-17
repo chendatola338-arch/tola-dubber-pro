@@ -747,8 +747,7 @@ const a = await gem([{ text: prompt }], { rounds: 6 });
 if (o && ids.includes(+o.i) && String(o.km || '').trim()) {
 const s = segs[+o.i];
 s.km = String(o.km).trim();
-if (!s.g && (o.g === 'f' || o.g === 'm')) s.g = o.g;
-if (!s.g) s.g = 'm';
+if (o.g === 'f' || o.g === 'm') s.g = o.g;
 }
 });
 await _0x140d({ status: 'running', step: 2, segs: _0x13fc(segs) });
@@ -756,7 +755,7 @@ await _0x140d({ status: 'running', step: 2, segs: _0x13fc(segs) });
 log('Translating… ' + need.filter(i => segs[i].km).length + '/' + need.length);
 }
 }
-segs.forEach(s => { if (s.g !== 'f') s.g = 'm'; });
+resolveSegmentGenders(segs);
 const miss = need.filter(i => !segs[i].km || !segs[i].km.trim());
 if (miss.length) {
 log('⚠ ' + miss.length + ' line(s) incomplete in translation — skipped and not stored into video.', 'w');
@@ -1895,12 +1894,22 @@ if (spkBar && spkList) {
       spkList.appendChild(pill);
     });
 
+    const autoBtn = $('autoDetectGendersBtn');
+    if (autoBtn) {
+      autoBtn.onclick = () => {
+        resolveSegmentGenders(segs);
+        segs.forEach(s => s.audio = null);
+        _0x1440();
+        toast('⚡ បានវិភាគ និងកំណត់តួអង្គប្រុស/ស្រីឡើងវិញដោយជោគជ័យ!');
+      };
+    }
+
     const swapBtn = $('swapGendersBtn');
     if (swapBtn) {
       swapBtn.onclick = () => {
         segs.forEach(s => {
           s.g = (s.g === 'f') ? 'm' : 'f';
-          s.speaker = (s.g === 'f') ? 'S1 (តួស្រី)' : 'S0 (តួប្រុស)';
+          s.speaker = (s.g === 'f') ? 'S1 (♀ តួស្រី)' : 'S0 (♂ តួប្រុស)';
           s.audio = null;
         });
         _0x1440();
@@ -2264,30 +2273,133 @@ async function listenNisay(resumed) {
   return cleanOut;
 }
 
+// ==========================================
+// INTELLIGENT DRAMA GENDER DETECTION ENGINE
+// ==========================================
+
+const FEMALE_VOCATIVES = /(?:姑娘|小姐|夫人|娘子|老婆|妹妹|表妹|师妹|爱妃|丫头|美女|岳母|母亲|娘|娘亲|婆婆|姑姑|大娘|大姐|弟妹|嫂子|嫂嫂|他娘|媳妇|妖女|魔女|仙子|仙女|郡主|公主|皇后|贵妃|侧妃|丫鬟|小妞|妹子|丈母娘|女施主|爱妻|皇妹|ผู้หญิง|អ្នកនាង|អូនសម្លាញ់|ប្រពន្ធសម្លាញ់|ប្រពន្ធខ្ញុំ|ប្អូនស្រី|កញ្ញា|នាងតូច|ម៉ែវា|នាងល្អិត|ស្រីស្អាត|ម៉ែ|ម្ដាយ|អ្នកម្តាយ|យាយ|មីង|អ៊ំស្រី|ព្រះនាង|ម្ចាស់ក្សត្រី|ព្រះមហេសី|អ្នកស្រី|ប្អូនស្រីសម្លាញ់)/;
+const MALE_VOCATIVES = /(?:夫君|相公|少爷|公子|王爷|陛下|皇上|圣上|万岁|哥哥|表哥|师兄|老公|爹|父亲|爹爹|爷爷|叔叔|舅舅|掌门|大哥|二哥|三哥|四哥|五哥|侯爷|殿下|督主|师父|师尊|义父|臭男人|死鬼|他爹|叔父|伯父|岳父|郎君|郎主|将军|大人|兄弟|男施主|皇兄|爱卿|លោកប្ដី|បងសម្លាញ់|លោកម្ចាស់|ព្រះស្វាមី|ព្រះអង្គ|លោកប្រុស|អ្នកប្រុស|លោកតា|ពូ|លោកពូ|ឪវា|លោកឪពុក|ពុក|បងប្រុស|មេបញ្ជាការ|លោកគ្រូ|ប្ដីសម្លាញ់|ព្រះរាជា|ព្រះរាជបុត្រ|ព្រះអង្គម្ចាស់)/;
+const FEMALE_SELF = /(?:臣妾|本宫|妾身|小女|小女子|奴婢|奴家|为妻|为母|哀家|老娘|本姑娘|小妹|妹妹我|姑娘我|娘子我|姑奶奶|ខ្ញុំជាស្រី|ខ្ញុំជាស្ត្រី|ខ្ញុំជាកូនស្រី|ខ្ញុំម្ចាស់ជាស្រី|ខ្ញុំម្ចាស់ជាស្នំ|ខ្ញុំជាម្តាយ|ខ្ញុំជាប្រពន្ធ)/;
+const MALE_SELF = /(?:朕|本王|本少爷|老子|微臣|末将|贫僧|为夫|为父|老夫|在下|俺|本官|卑职|小婿|本座|为师|本帅|兄弟我|老子我|小僧|老道|老朽|为兄|ខ្ញុំជាបុរស|ខ្ញុំជាប្រុស|ខ្ញុំជាកូនប្រុស|ខ្ញុំម្ចាស់ជាមេទ័ព|ខ្ញុំជាប្តី|ខ្ញុំជាឪពុក|ខ្ញុំជាបងប្រុស)/;
+
 function inferDramaGender(origText, kmText) {
   const all = (origText || '') + ' ' + (kmText || '');
   
-  // 1. High-confidence Female Self-pronouns (Speaker is definitely female)
-  if (/(?:臣妾|本宫|妾身|小女|奴婢|奴家|为妻|为母)/.test(all) || /(?:ខ្ញុំជាស្រី|ខ្ញុំម្ចាស់ជាស្រី|ខ្ញុំជាកូនស្រី)/.test(all)) {
-    return 'f';
-  }
+  // 1. Definite Female Self-Identity (Speaker is definitely female)
+  if (FEMALE_SELF.test(all)) return 'f';
   
-  // 2. High-confidence Male Self-pronouns (Speaker is definitely male)
-  if (/(?:朕|本王|本少爷|老子|微臣|末将|贫僧|为夫|为父|老夫)/.test(all) || /(?:ខ្ញុំជាបុរស|ខ្ញុំជាប្រុស|ខ្ញុំជាកូនប្រុស)/.test(all)) {
-    return 'm';
-  }
+  // 2. Definite Male Self-Identity (Speaker is definitely male)
+  if (MALE_SELF.test(all)) return 'm';
 
   // 3. Vocatives addressing a Female -> Speaker is MALE
-  if (/(?:姑娘|小姐|夫人|娘子|老婆|妹妹|表妹|师妹|爱妃|丫头|美女)/.test(all) || /(?:អ្នកនាង|អូនសម្លាញ់|ប្រពន្ធសម្លាញ់|ប្អូនស្រី|កញ្ញា|នាងតូច)/.test(all)) {
-    return 'm';
-  }
+  if (FEMALE_VOCATIVES.test(all)) return 'm';
 
   // 4. Vocatives addressing a Male -> Speaker is FEMALE
-  if (/(?:夫君|相公|少爷|公子|王爷|陛下|皇上|哥哥|表哥|师兄|老公)/.test(all) || /(?:លោកប្ដី|បងសម្លាញ់|បងប្រុស|លោកម្ចាស់|ព្រះស្វាមី|ព្រះអង្គ)/.test(all)) {
-    return 'f';
-  }
+  if (MALE_VOCATIVES.test(all)) return 'f';
 
   return null;
+}
+
+function extractAiGender(text) {
+  if (!text) return { gender: '', cleanText: '' };
+  let clean = String(text).trim();
+  let g = '';
+  
+  const femaleTagRegex = /(?:^|\s*)(?:\[(?:ស្រី|នារី|ស្រីមុំ|Female|Woman|Girl|F|តួស្រី)\]|\((?:ស្រី|នារី|ស្រីមុំ|Female|Woman|Girl|F|តួស្រី)\)|【(?:ស្រី|នារី|ស្រីមុំ|Female|Woman|Girl|F|តួស្រី)】|(?:តួស្រី|ស្រី)\s*[:៖\-])/i;
+  const maleTagRegex = /(?:^|\s*)(?:\[(?:ប្រុស|បុរស|ពិសិដ្ឋ|Male|Man|Boy|M|តួប្រុស)\]|\((?:ប្រុស|បុរស|ពិសិដ្ឋ|Male|Man|Boy|M|តួប្រុស)\)|【(?:ប្រុស|បុរស|ពិសិដ្ឋ|Male|Man|Boy|M|តួប្រុស)】|(?:តួប្រុស|ប្រុស)\s*[:៖\-])/i;
+
+  const hasF = femaleTagRegex.test(clean);
+  const hasM = maleTagRegex.test(clean);
+
+  if (hasF && !hasM) g = 'f';
+  else if (hasM && !hasF) g = 'm';
+
+  // Strip all gender prefix tags so Edge TTS never speaks '[ប្រុស]' or '[ស្រី]'
+  clean = clean.replace(/(?:^|\s*)(?:\[(?:ស្រី|នារី|ស្រីមុំ|Female|Woman|Girl|F|តួស្រី|ប្រុស|បុរស|ពិសិដ្ឋ|Male|Man|Boy|M|តួប្រុស)\]|\((?:ស្រី|នារី|ស្រីមុំ|Female|Woman|Girl|F|តួស្រី|ប្រុស|បុរស|ពិសិដ្ឋ|Male|Man|Boy|M|តួប្រុស)\)|【(?:ស្រី|នារី|ស្រីមុំ|Female|Woman|Girl|F|តួស្រី|ប្រុស|បុរស|ពិសិដ្ឋ|Male|Man|Boy|M|តួប្រុស)】|(?:តួស្រី|តួប្រុស|ស្រី|ប្រុស)\s*[:៖\-])\s*/gi, '').trim();
+
+  return { gender: g, cleanText: clean };
+}
+
+function resolveSegmentGenders(segments) {
+  if (!segments || !segments.length) return;
+
+  // Pass 1: Parse AI tags & Vocatives & Acoustic Pitch per segment
+  segments.forEach((s) => {
+    const orig = s.text || '';
+    const km = s.km || '';
+    const { gender: aiG, cleanText } = extractAiGender(km);
+    if (cleanText) s.km = cleanText;
+
+    const semG = inferDramaGender(orig, s.km);
+
+    let acousticG = s.acousticGender || '';
+    const pitch = s.pitch || 0;
+    if (!acousticG && pitch > 0) {
+      if (pitch >= 165) acousticG = 'f';
+      else if (pitch >= 75 && pitch <= 145) acousticG = 'm';
+    }
+
+    if (aiG === 'f' || aiG === 'm') {
+      s.g = aiG;
+      s._gConf = 'ai_explicit';
+    } else if (semG === 'f' || semG === 'm') {
+      s.g = semG;
+      s._gConf = 'semantic';
+    } else if (pitch >= 170) {
+      s.g = 'f';
+      s._gConf = 'pitch_strong';
+    } else if (pitch >= 75 && pitch <= 145) {
+      s.g = 'm';
+      s._gConf = 'pitch_strong';
+    } else if (acousticG) {
+      s.g = acousticG;
+      s._gConf = 'pitch_mid';
+    } else {
+      s.g = '';
+      s._gConf = 'none';
+    }
+  });
+
+  // Pass 2: Conversational Dialogue Flow Smoothing
+  // If the same speaker continues across short pauses (< 1.4s), maintain the speaker!
+  for (let i = 0; i < segments.length; i++) {
+    const cur = segments[i];
+    const prev = segments[i - 1];
+
+    if (!cur.g) {
+      if (prev && prev.g) {
+        const gap = cur.t - (prev.e || prev.t);
+        if (gap <= 1.4) {
+          cur.g = prev.g;
+          cur._gConf = 'continuation';
+        } else {
+          cur.g = prev.g === 'm' ? 'f' : 'm';
+          cur._gConf = 'alternation';
+        }
+      } else {
+        cur.g = 'm';
+      }
+    }
+  }
+
+  // Pass 3: Remove isolated sub-second single-word flips between matching speakers
+  for (let i = 1; i < segments.length - 1; i++) {
+    const prev = segments[i - 1];
+    const cur = segments[i];
+    const next = segments[i + 1];
+
+    if (prev.g === next.g && cur.g !== prev.g && cur._gConf !== 'ai_explicit' && cur._gConf !== 'semantic') {
+      const dur = (cur.e || cur.t) - cur.t;
+      if (dur < 1.3) {
+        cur.g = prev.g;
+      }
+    }
+  }
+
+  // Final Pass: Update speaker UI labels
+  segments.forEach(s => {
+    s.speaker = s.g === 'f' ? 'S1 (♀ តួស្រី)' : 'S0 (♂ តួប្រុស)';
+  });
 }
 
 async function translateNisay() {
@@ -2369,60 +2481,18 @@ async function translateNisay() {
           const segIdx = ids[idx];
           if (segIdx !== undefined && segs[segIdx]) {
             let rawText = String(item.text || '').trim();
-            
             // Clean any leading line numbers
             rawText = rawText.replace(/^(\d+|[០-៩]+)\s*[\.\:\-\)\]\s]\s*/, '').trim();
 
-            let aiGender = '';
-            // Comprehensive tag extraction regex
-            const isF = /^(?:\[(ស្រី|នារី|ស្រីមុំ|Female|Woman|Girl|F)\]|\((ស្រី|នារី|ស្រីមុំ|Female|Woman|Girl|F)\)|(?:ស្រី|នារី|ស្រីមុំ|Female|Woman|Girl|F)\s*[:៖\-]|(?:ស្រី|នារី)\s+)[\s:៖\-]*/i.test(rawText);
-            const isM = /^(?:\[(ប្រុស|បុរស|ពិសិដ្ឋ|Male|Man|Boy|M)\]|\((ប្រុស|បុរស|ពិសិដ្ឋ|Male|Man|Boy|M)\)|(?:ប្រុស|បុរស|ពិសិដ្ឋ|Male|Man|Boy|M)\s*[:៖\-]|(?:ប្រុស|បុរស)\s+)[\s:៖\-]*/i.test(rawText);
-
-            if (isF && !isM) {
-              aiGender = 'f';
-              rawText = rawText.replace(/^(?:\[(ស្រី|នារី|ស្រីមុំ|Female|Woman|Girl|F)\]|\((ស្រី|នារី|ស្រីមុំ|Female|Woman|Girl|F)\)|(?:ស្រី|នារី|ស្រីមុំ|Female|Woman|Girl|F)\s*[:៖\-]|(?:ស្រី|នារី)\s+)[\s:៖\-]*/i, '').trim();
-            } else if (isM) {
-              aiGender = 'm';
-              rawText = rawText.replace(/^(?:\[(ប្រុស|បុរស|ពិសិដ្ឋ|Male|Man|Boy|M)\]|\((ប្រុស|បុរស|ពិសិដ្ឋ|Male|Man|Boy|M)\)|(?:ប្រុស|បុរស|ពិសិដ្ឋ|Male|Man|Boy|M)\s*[:៖\-]|(?:ប្រុស|បុរស)\s+)[\s:៖\-]*/i, '').trim();
-            }
-
-            // Real physical vocal cord pitch from video audio
-            const pitch = segs[segIdx].pitch || 0;
-            let acousticGender = segs[segIdx].acousticGender || '';
-            if (!acousticGender && pitch > 0) {
-              if (pitch >= 165) acousticGender = 'f';
-              else if (pitch >= 65 && pitch < 165) acousticGender = 'm';
-            }
-
-            // High-confidence Chinese drama vocatives / self-pronouns check
+            const { gender: aiG, cleanText } = extractAiGender(rawText);
             const orig = segs[segIdx].text || '';
-            const semanticGender = inferDramaGender(orig, rawText);
+            const semanticGender = inferDramaGender(orig, cleanText || rawText);
 
-            // DECISION HIERARCHY FOR 100% ACCURATE CHARACTER GENDER:
-            let finalGender = '';
-            // 1. Highest Authority: Explicit AI Drama Dialogue Analysis [ប្រុស] or [ស្រី]
-            if (aiGender === 'f' || aiGender === 'm') {
-              finalGender = aiGender;
-            }
-            // 2. High Authority: Drama semantic vocatives and self-pronouns
-            else if (semanticGender === 'f' || semanticGender === 'm') {
-              finalGender = semanticGender;
-            }
-            // 3. Fallback: Clean acoustic vocal pitch (only when uncorrupted)
-            else if (pitch >= 170) {
-              finalGender = 'f';
-            } else if (pitch >= 75 && pitch <= 145) {
-              finalGender = 'm';
-            } else if (acousticGender) {
-              finalGender = acousticGender;
-            } else {
-              const prev = segs[segIdx - 1];
-              finalGender = (prev && prev.g === 'm') ? 'f' : 'm';
-            }
+            if (aiG) segs[segIdx].g = aiG;
+            else if (semanticGender) segs[segIdx].g = semanticGender;
 
-            segs[segIdx].g = finalGender;
-            segs[segIdx].speaker = finalGender === 'f' ? 'S1 (♀ តួស្រី)' : 'S0 (♂ តួប្រុស)';
-            segs[segIdx].km = rawText;
+            segs[segIdx].km = cleanText || rawText;
+            segs[segIdx].speaker = segs[segIdx].g === 'f' ? 'S1 (♀ តួស្រី)' : 'S0 (♂ តួប្រុស)';
           }
         });
 
@@ -2476,12 +2546,8 @@ async function translateNisay() {
     }
   });
 
-  // Assign distinct speaker labels for UI
-  segs.forEach((s) => {
-    if (!s.speaker || s.speaker === 'S0' || s.speaker === 'S1') {
-      s.speaker = (s.g === 'f') ? 'S1 (តួស្រី)' : 'S0 (តួប្រុស)';
-    }
-  });
+  // Intelligent drama role resolution and dialogue flow smoothing
+  resolveSegmentGenders(segs);
 
   // Count detected roles
   let fCount = segs.filter(s => s.g === 'f').length;
@@ -2564,42 +2630,15 @@ async function translateCodeCraft() {
       if (!matched && rawLines[idx]) matched = rawLines[idx];
       let rawText = matched ? matched.replace(/^(\d+|[០-៩]+)\s*[\.\:\-\)\]\s]\s*/, '').trim() : (segs[segIdx].text || '');
 
-      let aiGender = '';
-      const isF = /^(?:\[(ស្រី|នារី|ស្រីមុំ|Female|Woman|Girl|F)\]|\((ស្រី|នារី|ស្រីមុំ|Female|Woman|Girl|F)\)|(?:ស្រី|នារី|ស្រីមុំ|Female|Woman|Girl|F)\s*[:៖\-]|(?:ស្រី|នារី)\s+)[\s:៖\-]*/i.test(rawText);
-      const isM = /^(?:\[(ប្រុស|បុរស|ពិសិដ្ឋ|Male|Man|Boy|M)\]|\((ប្រុស|បុរស|ពិសិដ្ឋ|Male|Man|Boy|M)\)|(?:ប្រុស|បុរស|ពិសិដ្ឋ|Male|Man|Boy|M)\s*[:៖\-]|(?:ប្រុស|បុរស)\s+)[\s:៖\-]*/i.test(rawText);
-
-      if (isF && !isM) {
-        aiGender = 'f';
-        rawText = rawText.replace(/^(?:\[(ស្រី|នារី|ស្រីមុំ|Female|Woman|Girl|F)\]|\((ស្រី|នារី|ស្រីមុំ|Female|Woman|Girl|F)\)|(?:ស្រី|នារី|ស្រីមុំ|Female|Woman|Girl|F)\s*[:៖\-]|(?:ស្រី|នារី)\s+)[\s:៖\-]*/i, '').trim();
-      } else if (isM) {
-        aiGender = 'm';
-        rawText = rawText.replace(/^(?:\[(ប្រុស|បុរស|ពិសិដ្ឋ|Male|Man|Boy|M)\]|\((ប្រុស|បុរស|ពិសិដ្ឋ|Male|Man|Boy|M)\)|(?:ប្រុស|បុរស|ពិសិដ្ឋ|Male|Man|Boy|M)\s*[:៖\-]|(?:ប្រុស|បុរស)\s+)[\s:៖\-]*/i, '').trim();
-      }
-
-      const pitch = segs[segIdx].pitch || 0;
-      let acousticGender = segs[segIdx].acousticGender || '';
-      if (!acousticGender && pitch > 0) {
-        if (pitch >= 165) acousticGender = 'f';
-        else if (pitch >= 65 && pitch < 165) acousticGender = 'm';
-      }
-
+      const { gender: aiG, cleanText } = extractAiGender(rawText);
       const orig = segs[segIdx].text || '';
-      const semanticGender = inferDramaGender(orig, rawText);
+      const semanticGender = inferDramaGender(orig, cleanText || rawText);
 
-      let finalGender = 'm';
-      if (aiGender === 'f' || aiGender === 'm') finalGender = aiGender;
-      else if (semanticGender === 'f' || semanticGender === 'm') finalGender = semanticGender;
-      else if (pitch >= 170) finalGender = 'f';
-      else if (pitch >= 75 && pitch <= 145) finalGender = 'm';
-      else if (acousticGender) finalGender = acousticGender;
-      else {
-        const prev = segs[segIdx - 1];
-        finalGender = (prev && prev.g === 'm') ? 'f' : 'm';
-      }
+      if (aiG) segs[segIdx].g = aiG;
+      else if (semanticGender) segs[segIdx].g = semanticGender;
 
-      segs[segIdx].g = finalGender;
-      segs[segIdx].speaker = finalGender === 'f' ? 'S1 (♀ តួស្រី)' : 'S0 (♂ តួប្រុស)';
-      segs[segIdx].km = rawText || segs[segIdx].text || '...';
+      segs[segIdx].km = cleanText || rawText || segs[segIdx].text || '...';
+      segs[segIdx].speaker = segs[segIdx].g === 'f' ? 'S1 (♀ តួស្រី)' : 'S0 (♂ តួប្រុស)';
     });
 
     done += ids.length;
@@ -2623,12 +2662,8 @@ async function translateCodeCraft() {
     if (!s.km || !s.km.trim()) s.km = s.text || '...';
   });
 
-  // Assign distinct speaker labels for UI
-  segs.forEach(s => {
-    if (!s.speaker || s.speaker === 'S0' || s.speaker === 'S1') {
-      s.speaker = (s.g === 'f') ? 'S1 (តួស្រី)' : 'S0 (តួប្រុស)';
-    }
-  });
+  // Intelligent drama role resolution and dialogue flow smoothing
+  resolveSegmentGenders(segs);
 
   let fCount = segs.filter(s => s.g === 'f').length;
   let mCount = segs.filter(s => s.g === 'm').length;
