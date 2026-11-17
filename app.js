@@ -3024,7 +3024,7 @@ const DEFAULT_PAYWAY_API = 'https://autumn-smoke-5a70.chendatola338.workers.dev'
       }
       const params = new URLSearchParams(window.location.search);
       if (params.get('sync_to_vercel')) {
-        alert('Domain ចាស់នេះមិនទាន់មានរក្សាទុកទិន្នន័យ VIP ទេ។ សូមត្រលប់ទៅ Vercel ហើយបញ្ចូល VIP Code របស់លោកអ្នក (ឧ. VIP899 ឬ VIP600)');
+        alert('Domain ចាស់នេះមិនទាន់មានរក្សាទុកទិន្នន័យ VIP ទេ។ សូមត្រលប់ទៅ Vercel ហើយបញ្ចូល VIP Code របស់លោកអ្នក។');
         window.location.replace('https://tola-dubber-pro.vercel.app/');
         return;
       }
@@ -3630,7 +3630,7 @@ if ($('verifyLastPaidBtn')) {
     }
 
     btn.innerHTML = origText;
-    const code = prompt('សូមបញ្ចូលលេខកូដ VIP Code ឬ លេខប្រតិបត្តិការ ABA (ឧ. VIP899):');
+    const code = prompt('សូមបញ្ចូលលេខកូដ VIP Code ឬ លេខប្រតិបត្តិការ ABA:');
     if (code) {
       handleVipCodeActivation(code);
     }
