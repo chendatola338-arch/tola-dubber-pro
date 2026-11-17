@@ -1710,7 +1710,8 @@ await _0x1286();
 const clips = segs.map(x => ({ t: x.t, u: x.audio })).filter(c => c.u);
 if (!clips.length) return log('⚠ No voice audio was produced.');
 let handle = null;
-if (window.showSaveFilePicker) { try { handle = await showSaveFilePicker({ suggestedName: 'khmer-dubbed.' + ext0, types: [{ description: ext0.toUpperCase() + ' video', accept: { [offCfg ? offCfg.mime : mime0.split(';')[0]]: ['.' + ext0] } }] }) } catch (e) { if (e && e.name === 'AbortError') return log('Export cancelled.'); handle = null } }
+const isMobileDevice = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+if (!isMobileDevice && window.showSaveFilePicker) { try { handle = await showSaveFilePicker({ suggestedName: 'khmer-dubbed.' + ext0, types: [{ description: ext0.toUpperCase() + ' video', accept: { [offCfg ? offCfg.mime : mime0.split(';')[0]]: ['.' + ext0] } }] }) } catch (e) { if (e && e.name === 'AbortError') return log('Export cancelled.'); handle = null } }
 const btn = $('exp'); busy(true, 'export'); btn.disabled = true; $('replay').disabled = true; $('go').disabled = true;
 v.pause(); _0x12b9(); dubbing = false;
 let ac = null, ev, drv, drw, rec, result = null;
@@ -1794,7 +1795,7 @@ b.disabled = true;
 try {
 log('Merging all voice lines into one audio file…');
 const out = await _0x1264(await _0x1297(), ev0dur()), blob = wavAt(out.getChannelData(0), out.sampleRate);
-if (window.showSaveFilePicker) { try { const h = await showSaveFilePicker({ suggestedName: 'khmer-dub-audio.wav', types: [{ description: 'WAV audio', accept: { 'audio/wav': ['.wav'] } }] }); const w = await h.createWritable(); await w.write(blob); await w.close(); b.disabled = false; return log('✓ Saved “' + h.name + '” (one merged Khmer track, ' + out.duration.toFixed(1) + 's, same length as the video).') } catch (e) { if (e && e.name === 'AbortError') { b.disabled = false; return } } }
+if (!isMobileDevice && window.showSaveFilePicker) { try { const h = await showSaveFilePicker({ suggestedName: 'khmer-dub-audio.wav', types: [{ description: 'WAV audio', accept: { 'audio/wav': ['.wav'] } }] }); const w = await h.createWritable(); await w.write(blob); await w.close(); b.disabled = false; return log('✓ Saved “' + h.name + '” (one merged Khmer track, ' + out.duration.toFixed(1) + 's, same length as the video).') } catch (e) { if (e && e.name === 'AbortError') { b.disabled = false; return } } }
 const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'khmer-dub-audio.wav'; a.click();
 log('✓ Merged Khmer audio downloaded (' + out.duration.toFixed(1) + 's, same length as the video).');
 } catch (e) { log('⚠ Merge failed: ' + (e.message || e)) }
@@ -1811,11 +1812,16 @@ log('✓ Exported ' + r.name + ' (' + (r.blob.size / 1048576).toFixed(1) + ' MB)
 $('xinfo').textContent = r.name + ' · ' + (r.blob.size / 1048576).toFixed(1) + ' MB · ' + Math.floor(r.dur / 60) + ':' + String(Math.floor(r.dur % 60)).padStart(2, '0');
 $('xopen').href = xUrl; $('xopen').dataset.n = r.name;
 const isIos = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+const isAndroid = /Android/i.test(navigator.userAgent);
 if (isIos) {
   $('xwhere').textContent = '📲 សម្រាប់ iPhone: ចុចប៊ូតុងខាងក្រោម ឬចុចសញ្ញា Share [↑] នៅខាងក្រោម Safari រួចជ្រើសរើស "Save Video" ដើម្បីចូល Photos App។';
   $('xsave').innerHTML = '📲 Save Video ចូល Photos (iPhone)';
+} else if (isAndroid) {
+  $('xwhere').textContent = '📲 វីដេអូបានទាញយកដោយជោគជ័យ! បងអាចបើកមើលក្នុងកម្មវិធី Files / Downloads ឬចុចប៊ូតុងខាងក្រោមដើម្បីរក្សាទុកក្នុង Gallery ឬចែករំលែក។';
+  $('xsave').innerHTML = '📥 ទាញយក / Save ចូល Gallery (Android)';
 } else {
   $('xwhere').textContent = 'Your video was ' + r.where + '. ' + (r.handle ? '' : 'Websites can’t open folders for you: in Chrome or Edge press Ctrl+J (⌘+Shift+J on Mac) and click “Show in folder”.');
+  $('xsave').innerHTML = '💾 Save Video';
 }
 $('xmod').classList.add('on'); confetti(); setTimeout(confetti, 700); setTimeout(confetti, 1400);
 }
@@ -2832,7 +2838,8 @@ setTimeout(_0x1462, 80);
 $('replay').onclick = () => { _0x1220(); _0x12db() };
 $('dl').onclick = async () => {
 const srt = segs.map((x, i) => (i + 1) + '\n' + fmt(x.t) + ' --> ' + fmt(x.e || (segs[i + 1] ? segs[i + 1].t - .1 : x.t + 4)) + '\n' + (x.g === 'f' ? '[F] ' : '[M] ') + x.km + '\n').join('\n'), blob = new Blob([srt], { type: 'text/plain' });
-if (window.showSaveFilePicker) { try { const h = await showSaveFilePicker({ suggestedName: 'khmer-dub.srt', types: [{ description: 'Subtitles', accept: { 'text/plain': ['.srt'] } }] }); const w = await h.createWritable(); await w.write(blob); await w.close(); return log('✓ Saved “' + h.name + '”.') } catch (e) { if (e && e.name === 'AbortError') return } }
+const isMobileDevice = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+if (!isMobileDevice && window.showSaveFilePicker) { try { const h = await showSaveFilePicker({ suggestedName: 'khmer-dub.srt', types: [{ description: 'Subtitles', accept: { 'text/plain': ['.srt'] } }] }); const w = await h.createWritable(); await w.write(blob); await w.close(); return log('✓ Saved “' + h.name + '”.') } catch (e) { if (e && e.name === 'AbortError') return } }
 const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'khmer-dub.srt'; a.click();
 };
 document.querySelectorAll('[data-tab]').forEach(b => b.onclick = () => { document.querySelectorAll('[data-tab]').forEach(x => x.classList.toggle('on', x === b)); document.querySelectorAll('.panel').forEach(p => p.hidden = p.id !== 'tab-' + b.dataset.tab) });
