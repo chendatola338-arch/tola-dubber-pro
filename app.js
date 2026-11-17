@@ -770,7 +770,7 @@ sent.forEach(s => { if (s.length <= max) push(s); else { let p = ''; s.split(' '
 if (cur && _0x1187(cur)) out.push(cur);
 return out.length ? out : (_0x1187(t) ? [t.trim()] : []);
 }
-function _0x11a9(L, max = 120) {
+function _0x11a9(L, max = 240) {
 const out = [];
 L.forEach((s, i) => {
 const km = _0x1176(s.km) || s.km, g = s.g === 'f' ? 'f' : 'm';
@@ -800,8 +800,8 @@ async function _0x11ba(base, text, voice, rate) {
     return _ttsAudioCache.get(cacheKey);
   }
 
-  for (let t = 0; t < 3; t++) {
-    const ac = new AbortController(), to = setTimeout(() => ac.abort(), 7500);
+  for (let t = 0; t < 2; t++) {
+    const ac = new AbortController(), to = setTimeout(() => ac.abort(), 14000);
     try {
       const r = await fetch(srv + '/tts', {
         method: 'POST',
@@ -819,14 +819,14 @@ async function _0x11ba(base, text, voice, rate) {
       return b;
     } catch (e) {
       err = e;
-      if (t < 2) await sleep(180 * (t + 1));
+      if (t < 1) await sleep(400);
     } finally {
       clearTimeout(to);
     }
   }
   throw err;
 }
-async function _0x11cb(base, text, voice, rate, maxChunk = 260) {
+async function _0x11cb(base, text, voice, rate, maxChunk = 300) {
   if (text.length <= maxChunk) {
     return await _0x11ba(base, text, voice, rate);
   }
@@ -863,32 +863,25 @@ blog('⚠️ Edge voice server មិនទាន់ឆ្លើយតប (ស�
 }
 const gen = async i => {
 const txt = _0x1176(segs[i].km), voice = _0x14ea(segs[i]);
-try {
-await _0x141e(i, await _0x11cb(base, txt, voice, '+8%', 260));
-return;
-} catch (e) {
-blog('Retrying line ' + (i + 1) + ' (' + (segs[i].g === 'f' ? 'Sreymom' : 'Piseth') + ')…', 'w');
-await sleep(140);
-await _0x141e(i, await _0x11cb(base, txt, voice, '+8%', 260));
-}
+await _0x141e(i, await _0x11cb(base, txt, voice, '+8%', 300));
 };
-// Ultra-fast pipelined 3-stream generation with micro-stagger
-const CONC = 3;
+// Smooth dual-stream pipelined generation (prevents Microsoft Edge socket rate limiting)
+const CONC = 2;
 await Promise.all(Array.from({ length: CONC }, async (_, workerIdx) => {
-await sleep(workerIdx * 110);
+await sleep(workerIdx * 250);
 while (q.length) {
 const i = q.shift();
-await sleep(25);
-try { await gen(i) } catch (e) { failed.push(i); blog('✕ line ' + (i + 1) + ' failed: ' + (e.message || e), 'w') }
+await sleep(40);
+try { await gen(i) } catch (e) { failed.push(i); blog('⚠ line ' + (i + 1) + ' queued for fast retry', 'w') }
 done++;
-const remSec = Math.max(1, Math.ceil((total - done) * 0.45));
+const remSec = Math.max(1, Math.ceil((total - done) * 0.85));
 const pctV = 75 + Math.round((done / Math.max(1, total)) * 23);
 setProgress(pctV, 'Generating Khmer voice (' + done + '/' + total + ') · ~' + remSec + 's remaining...', 'Khmer Voice');
-log('Generating Khmer voice with Edge… ' + done + '/' + total + (failed.length ? ' (' + failed.length + ' failed)' : ''));
+log('Generating Khmer voice with Edge… ' + done + '/' + total + (failed.length ? ' (' + failed.length + ' queued for retry)' : ''));
 }
 }));
-for (let pass = 0; pass < 3 && failed.length; pass++) {
-await sleep(500 * (pass + 1));
+for (let pass = 0; pass < 2 && failed.length; pass++) {
+await sleep(400 * (pass + 1));
 const retryList = failed.slice();
 for (const i of retryList) {
 log('Retrying line ' + (i + 1) + ' (pass ' + (pass + 1) + ')…');
@@ -898,7 +891,7 @@ const idx = failed.indexOf(i);
 if (idx !== -1) failed.splice(idx, 1);
 } catch (e) { 
 blog('✕ line ' + (i + 1) + ' retry failed: ' + (e.message || e), 'w'); 
-await sleep(200);
+await sleep(150);
 }
 }
 }
