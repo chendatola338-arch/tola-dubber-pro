@@ -1182,11 +1182,11 @@ function updateSpeechWindows() {
     _speechWindowsKey = '';
     return;
   }
-  // Pre-roll: 0.14s (140ms) before Chinese speech to silence initial speech onset & breath
-  // Post-roll: 0.06s (60ms) after Chinese speech to catch vocal release
+  // Pre-roll: 0.35s (350ms) before Chinese speech to completely silence initial speech onset, breaths & consonants
+  // Post-roll: 0.25s (250ms) after Chinese speech to silence trailing vocal release & echoes
   // Only duck during actual Chinese speech cues so BGM & SFX play loud & clear during all pauses and scenes!
-  const preRoll = 0.14;
-  const postRoll = 0.06;
+  const preRoll = 0.35;
+  const postRoll = 0.25;
 
   const valid = segs.filter(s => s && s.km && s.km.trim() && !s.skip);
   if (!valid.length) {
@@ -1239,9 +1239,9 @@ function applyBgmVolume(targetGain, isSmooth = true) {
       _currentGainTarget = targetGain;
       const now = ctx.currentTime;
       if (isSmooth) {
-        // Linear ramp: 80ms fade down to silence, 180ms fade up to full BGM
+        // Linear ramp: 30ms instant fade down to silence (0 Chinese vocals heard), 160ms fade up to full BGM
         const isDucking = targetGain < 0.05;
-        const rampDuration = isDucking ? 0.08 : 0.18;
+        const rampDuration = isDucking ? 0.03 : 0.16;
         const currentVal = _bgmGainNode.gain.value;
         _bgmGainNode.gain.cancelScheduledValues(now);
         _bgmGainNode.gain.setValueAtTime(currentVal, now);
@@ -2276,7 +2276,7 @@ async function translateNisay() {
   if (!total) return;
 
   log('NISAY AI is analyzing characters & translating ' + total + ' lines...');
-  const batchSize = 25; // 25 lines per batch for 2x faster translation throughput
+  const batchSize = 10; // Optimal 10-line batches for instant 1.5s response & zero timeouts
   const batches = [];
   for (let p = 0; p < total; p += batchSize) {
     batches.push(need.slice(p, p + batchSize));
@@ -2304,6 +2304,8 @@ async function translateNisay() {
     ];
     for (let attempt = 1; attempt <= 3; attempt++) {
       const targetUrl = endpoints[(attempt - 1) % endpoints.length];
+      const controller = new AbortController();
+      const to = setTimeout(() => controller.abort(), 22000);
       try {
         const resp = await fetch(targetUrl, {
           method: 'POST',
@@ -2318,8 +2320,10 @@ async function translateNisay() {
             model: 'gpt-5.6-luna',
             category: category,
             context: dramaDubContext
-          })
+          }),
+          signal: controller.signal
         });
+        clearTimeout(to);
 
         if (resp.status === 429 || resp.status >= 500) {
           blog('⚠ NISAY server busy (' + resp.status + '), retry ' + attempt + '/3...', 'w');
@@ -2402,6 +2406,7 @@ async function translateNisay() {
         await _0x140d({ status: 'running', step: 2, segs: _0x13fc(segs) });
         return;
       } catch (err) {
+        clearTimeout(to);
         if (attempt === 3) throw err;
         await sleep(1000 * attempt);
       }
