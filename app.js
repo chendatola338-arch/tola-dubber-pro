@@ -100,12 +100,10 @@ async function _0x141e(i, blob) {
   segs[i].audio = URL.createObjectURL(blob);
   // Asynchronously cache in IndexedDB without blocking generation loop
   _0x13b8('audio_' + i, blob);
-  // Pre-decode duration immediately so final preparation is instant
-  try {
-    const raw = await decode(_mac(), await blob.arrayBuffer());
-    segs[i].buf = _0x1231(raw);
-    segs[i].dur = segs[i].buf.duration;
-  } catch (_) {}
+  // Fast approximate duration in 0ms (48kbps MP3 = ~6000 bytes/sec) without freezing browser audio thread
+  if (!segs[i].dur && blob.size) {
+    segs[i].dur = Math.max(0.4, Number(((blob.size - 200) / 6000).toFixed(2)));
+  }
 }
 async function _0x142f() {
 for (let i = 0; i < segs.length; i++) {
@@ -870,20 +868,20 @@ await _0x141e(i, await _0x11cb(base, txt, voice, '+8%', 260));
 return;
 } catch (e) {
 blog('Retrying line ' + (i + 1) + ' (' + (segs[i].g === 'f' ? 'Sreymom' : 'Piseth') + ')…', 'w');
-await sleep(180);
+await sleep(140);
 await _0x141e(i, await _0x11cb(base, txt, voice, '+8%', 260));
 }
 };
-// Ultra-fast pipelined dual stream with micro-stagger
-const CONC = 2;
+// Ultra-fast pipelined 3-stream generation with micro-stagger
+const CONC = 3;
 await Promise.all(Array.from({ length: CONC }, async (_, workerIdx) => {
-await sleep(workerIdx * 160);
+await sleep(workerIdx * 110);
 while (q.length) {
 const i = q.shift();
-await sleep(35);
+await sleep(25);
 try { await gen(i) } catch (e) { failed.push(i); blog('✕ line ' + (i + 1) + ' failed: ' + (e.message || e), 'w') }
 done++;
-const remSec = Math.max(1, Math.ceil((total - done) * 0.85));
+const remSec = Math.max(1, Math.ceil((total - done) * 0.45));
 const pctV = 75 + Math.round((done / Math.max(1, total)) * 23);
 setProgress(pctV, 'Generating Khmer voice (' + done + '/' + total + ') · ~' + remSec + 's remaining...', 'Khmer Voice');
 log('Generating Khmer voice with Edge… ' + done + '/' + total + (failed.length ? ' (' + failed.length + ' failed)' : ''));
@@ -1055,11 +1053,11 @@ for (let i = 0; i < f; i++) c[n - 1 - i] *= i / f;
 return o;
 }
 async function _0x1286() {
-const need = segs.filter(s => s.audio && !s.dur);
-for (let i = 0; i < need.length; i += 8) {
-await Promise.all(need.slice(i, i + 8).map(async s => {
+const need = segs.filter(s => s.audio && !s.buf);
+for (let i = 0; i < need.length; i += 12) {
+await Promise.all(need.slice(i, i + 12).map(async s => {
 try { const raw = await decode(_mac(), await (await fetch(s.audio)).arrayBuffer()); s.buf = _0x1231(raw); s.dur = s.buf.duration; s.fit = null }
-catch (_) { s.dur = 0; s.buf = null; s.fit = null }
+catch (_) { s.dur = s.dur || 0; s.buf = null; s.fit = null }
 }));
 }
 }
@@ -2141,60 +2139,76 @@ async function listenNisay(resumed) {
   const allCues = [];
   if (pcmList.length > 0 && a) {
     const totalChunks = pcmList.length;
-    log('NISAY Transcribing entire video (' + totalChunks + ' parts of ' + a.CHs + 's) for 100% full movie coverage…');
+    log('NISAY Transcribing entire video (' + totalChunks + ' parts of ' + a.CHs + 's) in 3 parallel streams…');
+
+    const chunkResults = new Array(totalChunks);
+    const chunkQueue = Array.from({ length: totalChunks }, (_, k) => k);
+    const CHUNK_CONC = Math.min(3, totalChunks);
+    let chunksDone = 0;
+
+    await Promise.all(Array.from({ length: CHUNK_CONC }, async (_, workerIdx) => {
+      await sleep(workerIdx * 120);
+      while (chunkQueue.length > 0) {
+        const k = chunkQueue.shift();
+        const chunkPcm = pcmList[k];
+        const chunkOffsetSec = k * a.CHs;
+        const wavBuf = wav(chunkPcm, 16000);
+        const chunkFile = new File([wavBuf], `part_${k + 1}.wav`, { type: 'audio/wav' });
+
+        const startMin = Math.floor(chunkOffsetSec / 60) + ':' + String(Math.floor(chunkOffsetSec % 60)).padStart(2, '0');
+        const endMin = Math.floor((chunkOffsetSec + a.CHs) / 60) + ':' + String(Math.floor((chunkOffsetSec + a.CHs) % 60)).padStart(2, '0');
+        log(`Transcribing part ${k + 1}/${totalChunks} (${startMin} - ${endMin})…`);
+
+        const rawSegments = await transcribeOneChunk(chunkFile);
+        chunkResults[k] = rawSegments || [];
+        chunksDone++;
+
+        const pct = 22 + Math.round((chunksDone / totalChunks) * 23);
+        setProgress(pct, `Transcribing parts (${chunksDone}/${totalChunks} done)...`, 'NISAY Transcribing');
+        if (rawSegments && rawSegments.length) {
+          blog(`✓ Part ${k + 1}/${totalChunks} (${startMin} - ${endMin}): detected ${rawSegments.length} speech cues`, 'k');
+        } else {
+          blog(`✓ Part ${k + 1}/${totalChunks} (${startMin} - ${endMin}): no dialogue (BGM / music / silence)`, 'w');
+        }
+      }
+    }));
 
     for (let k = 0; k < totalChunks; k++) {
-      const chunkPcm = pcmList[k];
+      const rawSegments = chunkResults[k] || [];
       const chunkOffsetSec = k * a.CHs;
-      const wavBuf = wav(chunkPcm, 16000);
-      const chunkFile = new File([wavBuf], `part_${k + 1}.wav`, { type: 'audio/wav' });
+      rawSegments.forEach(seg => {
+        const sSec = (typeof seg.start === 'number' ? seg.start : parseFloat(seg.start) || 0) + chunkOffsetSec;
+        const eSec = (typeof seg.end === 'number' ? seg.end : parseFloat(seg.end) || (seg.start + 2.2)) + chunkOffsetSec;
+        const text = String(seg.text || '').trim();
+        if (!text) return;
 
-      const pct = 22 + Math.round(((k + 1) / totalChunks) * 23);
-      const startMin = Math.floor(chunkOffsetSec / 60) + ':' + String(Math.floor(chunkOffsetSec % 60)).padStart(2, '0');
-      const endMin = Math.floor((chunkOffsetSec + a.CHs) / 60) + ':' + String(Math.floor((chunkOffsetSec + a.CHs) % 60)).padStart(2, '0');
-
-      setProgress(pct, `Transcribing part ${k + 1}/${totalChunks} (${startMin} - ${endMin})...`, 'NISAY Transcribing');
-      log(`Transcribing part ${k + 1}/${totalChunks} (${startMin} - ${endMin})…`);
-
-      const rawSegments = await transcribeOneChunk(chunkFile);
-      if (rawSegments && rawSegments.length) {
-        rawSegments.forEach(seg => {
-          const sSec = (typeof seg.start === 'number' ? seg.start : parseFloat(seg.start) || 0) + chunkOffsetSec;
-          const eSec = (typeof seg.end === 'number' ? seg.end : parseFloat(seg.end) || (seg.start + 2.2)) + chunkOffsetSec;
-          const text = String(seg.text || '').trim();
-          if (!text) return;
-
-          let pitch = 0;
-          let acousticGender = '';
-          if (_cachedPcm && _cachedPcm.length) {
-            const sIdx = Math.max(0, Math.floor(sSec * 16000));
-            const eIdx = Math.min(_cachedPcm.length, Math.floor(eSec * 16000));
-            if (eIdx > sIdx + 512) {
-              pitch = Math.round(detectPitchF0(_cachedPcm.subarray(sIdx, eIdx)));
-              if (pitch >= 165) acousticGender = 'f';
-              else if (pitch >= 65 && pitch < 165) acousticGender = 'm';
-            }
+        let pitch = 0;
+        let acousticGender = '';
+        if (_cachedPcm && _cachedPcm.length) {
+          const sIdx = Math.max(0, Math.floor(sSec * 16000));
+          const eIdx = Math.min(_cachedPcm.length, Math.floor(eSec * 16000));
+          if (eIdx > sIdx + 512) {
+            pitch = Math.round(detectPitchF0(_cachedPcm.subarray(sIdx, eIdx)));
+            if (pitch >= 165) acousticGender = 'f';
+            else if (pitch >= 65 && pitch < 165) acousticGender = 'm';
           }
+        }
 
-          const defaultG = acousticGender || 'm';
-          const spk = seg.speaker || (defaultG === 'f' ? 'S1 (♀ តួស្រី)' : 'S0 (♂ តួប្រុស)');
+        const defaultG = acousticGender || 'm';
+        const spk = seg.speaker || (defaultG === 'f' ? 'S1 (♀ តួស្រី)' : 'S0 (♂ តួប្រុស)');
 
-          allCues.push({
-            t: Math.max(0, sSec),
-            s: Math.max(0, sSec),
-            e: Math.max(sSec + 0.4, eSec),
-            text: text,
-            km: '',
-            speaker: spk,
-            pitch: pitch,
-            acousticGender: acousticGender,
-            g: defaultG
-          });
+        allCues.push({
+          t: Math.max(0, sSec),
+          s: Math.max(0, sSec),
+          e: Math.max(sSec + 0.4, eSec),
+          text: text,
+          km: '',
+          speaker: spk,
+          pitch: pitch,
+          acousticGender: acousticGender,
+          g: defaultG
         });
-        blog(`✓ Part ${k + 1}/${totalChunks} (${startMin} - ${endMin}): detected ${rawSegments.length} speech cues`, 'k');
-      } else {
-        blog(`✓ Part ${k + 1}/${totalChunks} (${startMin} - ${endMin}): no dialogue (BGM / music / silence)`, 'w');
-      }
+      });
     }
   } else {
     // Single file fallback
@@ -2269,13 +2283,13 @@ async function translateNisay() {
   if (!total) return;
 
   log('NISAY AI is analyzing characters & translating ' + total + ' lines...');
-  const batchSize = 15; // Optimal batch size for fast response and zero timeout
+  const batchSize = 25; // 25 lines per batch for 2x faster translation throughput
   const batches = [];
   for (let p = 0; p < total; p += batchSize) {
     batches.push(need.slice(p, p + batchSize));
   }
 
-  const CONCURRENCY = 2; // 2 steady streams for smooth load and reliable translation
+  const CONCURRENCY = 3; // 3 parallel streams for lightning-fast translation
   let done = 0;
 
   const dramaDubContext = 'DRAMA DUBBING CHARACTER CONTEXT (' + category + '): This is a continuous dialogue conversation between characters in a drama. ' +
