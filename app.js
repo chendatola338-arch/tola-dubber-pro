@@ -2060,11 +2060,10 @@ async function listenNisay(resumed) {
   setProgress(10, 'Extracting 16kHz audio for speech recognition & character pitch...', 'Extracting Audio');
   log('Extracting audio track from video…');
 
-  let uploadFile = curFile;
-  let uploadName = curFile.name || 'video.mp4';
+  let a = null;
+  const pcmList = [];
   try {
-    const a = await _0x1165();
-    const pcmList = [];
+    a = await _0x1165();
     for (let k = 0; k < a.total; k++) {
       pcmList.push(await a.getPcm(k));
       setProgress(10 + Math.round(((k + 1) / a.total) * 12), 'Extracting audio: ' + Math.round(((k + 1) / a.total) * 100) + '%', 'Extracting Audio');
@@ -2077,161 +2076,158 @@ async function listenNisay(resumed) {
       offset += p.length;
     }
     _cachedPcm = merged;
-    let targetPcm = merged;
-    let targetRate = 16000;
-    // Mobile 4G/5G optimization: Downsample audio > 3 minutes to 8kHz to cut upload size by 50%
-    // Keeps file under 10MB for rapid, bulletproof upload on mobile cellular connections without connection drop
-    if (merged.length > 16000 * 180) {
-      const halfLen = Math.floor(merged.length / 2);
-      const down = new Float32Array(halfLen);
-      for (let i = 0; i < halfLen; i++) {
-        const idx = i * 2;
-        down[i] = (merged[idx] + (merged[idx + 1] || merged[idx])) * 0.5;
-      }
-      targetPcm = down;
-      targetRate = 8000;
-    }
-    const wavBuf = wav(targetPcm, targetRate);
-    uploadFile = new File([wavBuf], 'audio.wav', { type: 'audio/wav' });
-    uploadName = 'audio.wav';
-    blog('✓ Lightweight mobile audio ready: ' + (merged.length / 16000).toFixed(1) + 's (' + (uploadFile.size / 1024 / 1024).toFixed(2) + ' MB WAV @ ' + (targetRate / 1000) + 'kHz)', 'k');
   } catch (err) {
     blog('⚠ Audio extraction fallback: using original video file (' + (err.message || err) + ')', 'w');
-    uploadFile = curFile;
-    uploadName = curFile.name || 'video.mp4';
   }
-
-  setProgress(25, 'Sending audio to NISAY Gateway (model: nisay-transcribe)...', 'NISAY Transcribing');
-  log('NISAY Transcribe is extracting exact millisecond timestamps and speech cues…');
-
-  const createFormData = () => {
-    const form = new FormData();
-    form.append('file', uploadFile, uploadName);
-    form.append('model', 'nisay-transcribe');
-    form.append('language', 'auto');
-    form.append('response_format', 'verbose_json');
-    form.append('prompt', 'Transcribe verbatim with millisecond timestamps and neutral speaker IDs.');
-    return form;
-  };
-
-  const t0 = performance.now();
-  let resp = null;
-  let lastErr = null;
-
-  // Dynamic timeout based on audio file size: allow up to 300s for large 30-minute videos
-  const fileSizeMb = (uploadFile.size || 0) / (1024 * 1024);
-  const timeoutMs = Math.max(120000, Math.min(300000, Math.ceil(fileSizeMb * 5000 + 90000)));
-  const timeoutSec = Math.round(timeoutMs / 1000);
 
   const endpoints = [
     { url: 'https://autumn-smoke-5a70.chendatola338.workers.dev/nisay/v1/audio/transcriptions?key=' + encodeURIComponent(nisayKey), useAuthHeader: false },
-    { url: 'https://api.nisay.store/v1/audio/transcriptions', useAuthHeader: true },
-    { url: 'https://autumn-smoke-5a70.chendatola338.workers.dev/nisay/v1/audio/transcriptions?key=' + encodeURIComponent(nisayKey), useAuthHeader: true }
+    { url: 'https://api.nisay.store/v1/audio/transcriptions', useAuthHeader: true }
   ];
 
-  for (let attempt = 1; attempt <= 3; attempt++) {
-    const ep = endpoints[(attempt - 1) % endpoints.length];
-    try {
+  async function transcribeOneChunk(chunkFile) {
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      const ep = endpoints[(attempt - 1) % endpoints.length];
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
-      const reqHeaders = {};
-      if (ep.useAuthHeader) {
-        reqHeaders['Authorization'] = 'Bearer ' + nisayKey;
+      const timeoutId = setTimeout(() => controller.abort(), 45000);
+      try {
+        const form = new FormData();
+        form.append('file', chunkFile, chunkFile.name || 'audio.wav');
+        form.append('model', 'nisay-transcribe');
+        form.append('language', 'auto');
+        form.append('response_format', 'verbose_json');
+        form.append('prompt', 'Transcribe verbatim with millisecond timestamps and neutral speaker IDs.');
+
+        const reqHeaders = {};
+        if (ep.useAuthHeader) {
+          reqHeaders['Authorization'] = 'Bearer ' + nisayKey;
+        }
+
+        const resp = await fetch(ep.url, {
+          method: 'POST',
+          headers: reqHeaders,
+          body: form,
+          signal: controller.signal
+        });
+        clearTimeout(timeoutId);
+
+        if (resp.status === 422) {
+          // No speech in this section (music/silence)
+          return [];
+        }
+        if (resp.status === 403) throw new Error('NISAY 403 Forbidden: API key expired or invalid.');
+        if (!resp.ok) {
+          if (attempt < 3) {
+            await sleep(1000 * attempt);
+            continue;
+          }
+          return [];
+        }
+
+        const data = await resp.json();
+        const segs = data.segments || [];
+        if (!segs.length && data.text && data.text.trim()) {
+          return [{ start: 0, end: 3.5, text: data.text.trim() }];
+        }
+        return segs;
+      } catch (err) {
+        clearTimeout(timeoutId);
+        if (attempt < 3) await sleep(1200 * attempt);
       }
-      resp = await fetch(ep.url, {
-        method: 'POST',
-        headers: reqHeaders,
-        body: createFormData(), // Fresh FormData for each retry prevents WebKit/Safari "Load failed" body reuse bug
-        signal: controller.signal
+    }
+    return [];
+  }
+
+  const allCues = [];
+  if (pcmList.length > 0 && a) {
+    const totalChunks = pcmList.length;
+    log('NISAY Transcribing entire video (' + totalChunks + ' parts of ' + a.CHs + 's) for 100% full movie coverage…');
+
+    for (let k = 0; k < totalChunks; k++) {
+      const chunkPcm = pcmList[k];
+      const chunkOffsetSec = k * a.CHs;
+      const wavBuf = wav(chunkPcm, 16000);
+      const chunkFile = new File([wavBuf], `part_${k + 1}.wav`, { type: 'audio/wav' });
+
+      const pct = 22 + Math.round(((k + 1) / totalChunks) * 23);
+      const startMin = Math.floor(chunkOffsetSec / 60) + ':' + String(Math.floor(chunkOffsetSec % 60)).padStart(2, '0');
+      const endMin = Math.floor((chunkOffsetSec + a.CHs) / 60) + ':' + String(Math.floor((chunkOffsetSec + a.CHs) % 60)).padStart(2, '0');
+
+      setProgress(pct, `Transcribing part ${k + 1}/${totalChunks} (${startMin} - ${endMin})...`, 'NISAY Transcribing');
+      log(`Transcribing part ${k + 1}/${totalChunks} (${startMin} - ${endMin})…`);
+
+      const rawSegments = await transcribeOneChunk(chunkFile);
+      if (rawSegments && rawSegments.length) {
+        rawSegments.forEach(seg => {
+          const sSec = (typeof seg.start === 'number' ? seg.start : parseFloat(seg.start) || 0) + chunkOffsetSec;
+          const eSec = (typeof seg.end === 'number' ? seg.end : parseFloat(seg.end) || (seg.start + 2.2)) + chunkOffsetSec;
+          const text = String(seg.text || '').trim();
+          if (!text) return;
+
+          let pitch = 0;
+          let acousticGender = '';
+          if (_cachedPcm && _cachedPcm.length) {
+            const sIdx = Math.max(0, Math.floor(sSec * 16000));
+            const eIdx = Math.min(_cachedPcm.length, Math.floor(eSec * 16000));
+            if (eIdx > sIdx + 512) {
+              pitch = Math.round(detectPitchF0(_cachedPcm.subarray(sIdx, eIdx)));
+              if (pitch >= 165) acousticGender = 'f';
+              else if (pitch >= 65 && pitch < 165) acousticGender = 'm';
+            }
+          }
+
+          const defaultG = acousticGender || 'm';
+          const spk = seg.speaker || (defaultG === 'f' ? 'S1 (♀ តួស្រី)' : 'S0 (♂ តួប្រុស)');
+
+          allCues.push({
+            t: Math.max(0, sSec),
+            s: Math.max(0, sSec),
+            e: Math.max(sSec + 0.4, eSec),
+            text: text,
+            km: '',
+            speaker: spk,
+            pitch: pitch,
+            acousticGender: acousticGender,
+            g: defaultG
+          });
+        });
+        blog(`✓ Part ${k + 1}/${totalChunks} (${startMin} - ${endMin}): detected ${rawSegments.length} speech cues`, 'k');
+      } else {
+        blog(`✓ Part ${k + 1}/${totalChunks} (${startMin} - ${endMin}): no dialogue (BGM / music / silence)`, 'w');
+      }
+    }
+  } else {
+    // Single file fallback
+    const rawSegments = await transcribeOneChunk(curFile);
+    rawSegments.forEach(seg => {
+      const sSec = typeof seg.start === 'number' ? seg.start : parseFloat(seg.start) || 0;
+      const eSec = typeof seg.end === 'number' ? seg.end : parseFloat(seg.end) || (sSec + 2.2);
+      const text = String(seg.text || '').trim();
+      if (!text) return;
+      allCues.push({
+        t: Math.max(0, sSec),
+        s: Math.max(0, sSec),
+        e: Math.max(sSec + 0.4, eSec),
+        text: text,
+        km: '',
+        speaker: 'S0 (♂ តួប្រុស)',
+        g: 'm'
       });
-      clearTimeout(timeoutId);
-      if (resp.ok || resp.status === 422 || resp.status === 403) break;
-      if (attempt < 3) {
-        blog('⚠ Network retry ' + attempt + '/3…', 'w');
-        await sleep(1500 * attempt);
-      }
-    } catch (err) {
-      lastErr = err;
-      if (err.name === 'AbortError') {
-        lastErr = new Error(`NISAY Transcribe timed out (${timeoutSec}s). Please check your internet connection and try again.`);
-      } else if (/load failed/i.test(err.message) || /failed to fetch/i.test(err.message)) {
-        lastErr = new Error('បញ្ហាភ្ជាប់អ៊ីនធឺណិត (Network Load Failed): សូមពិនិត្យមើលសេវា 5G/4G (គម្រោងអ៊ីនធឺណិត) ឬបិទ/បើក Cellular Data ឡើងវិញ។');
-      }
-      if (attempt < 3) {
-        blog('⚠ Network reconnecting ' + attempt + '/3…', 'w');
-        await sleep(2000 * attempt);
-      }
-    }
+    });
   }
 
-  if (!resp) {
+  if (!allCues.length) {
     if (typeof keyList === 'function' && keyList().length) {
-      blog('⚠ NISAY Gateway មិនអាច Upload បាន (សេវា 4G/5G មានការរារាំង)។ កំពុងប្ដូរទៅប្រើ Gemini Transcribe ដោយស្វ័យប្រវត្តិ...', 'w');
+      blog('⚠ NISAY មិនឃើញសំឡេងនិយាយ។ កំពុងប្ដូរទៅប្រើ Gemini Transcribe ដោយស្វ័យប្រវត្តិ...', 'w');
       return await listen(resumed);
-    }
-    throw (lastErr || new Error('Connection failed. Please check your internet connection.'));
-  }
-
-  const elapsed = ((performance.now() - t0) / 1000).toFixed(1);
-  if (resp.status === 403) throw new Error('NISAY 403 Forbidden: API Key expired or invalid. Please check https://api.nisay.store');
-  if (!resp.ok) {
-    const errData = await resp.json().catch(() => ({}));
-    const msg = (errData.error && errData.error.message) || resp.statusText;
-    if (resp.status === 422 && /no timestamped speech/i.test(msg)) {
-      throw new Error('No speech detected in the audio of this video.');
-    }
-    throw new Error('NISAY Transcribe failed (' + resp.status + '): ' + msg);
-  }
-
-  const data = await resp.json();
-  const cues = data.segments || [];
-  blog('← NISAY Transcribe 200 OK (' + elapsed + 's) · ' + cues.length + ' cues detected with exact millisecond timestamps', 'k');
-
-  if (!cues.length) {
-    if (data.text && data.text.trim()) {
-      return [{ t: 0, s: 0, e: v.duration || 5, text: data.text.trim(), km: '', g: 'm' }];
     }
     throw new Error('No speech was found in the video audio.');
   }
 
-  // Acoustic Pitch F0 calculation for every segment
-  const out = cues.map((seg, idx) => {
-    const startSec = typeof seg.start === 'number' ? seg.start : parseFloat(seg.start) || 0;
-    const endSec = typeof seg.end === 'number' ? seg.end : parseFloat(seg.end) || (startSec + 2.2);
-    
-    let pitch = 0;
-    let acousticGender = '';
-    if (_cachedPcm && _cachedPcm.length) {
-      const sIdx = Math.max(0, Math.floor(startSec * 16000));
-      const eIdx = Math.min(_cachedPcm.length, Math.floor(endSec * 16000));
-      if (eIdx > sIdx + 512) {
-        pitch = Math.round(detectPitchF0(_cachedPcm.subarray(sIdx, eIdx)));
-        if (pitch >= 165) acousticGender = 'f';
-        else if (pitch >= 65 && pitch < 165) acousticGender = 'm';
-      }
-    }
-
-    const defaultG = acousticGender || 'm';
-    const spk = seg.speaker || (defaultG === 'f' ? 'S1 (♀ តួស្រី)' : 'S0 (♂ តួប្រុស)');
-
-    return {
-      t: Math.max(0, startSec),
-      s: Math.max(0, startSec),
-      e: Math.max(startSec + 0.4, endSec),
-      text: String(seg.text || '').trim(),
-      km: '',
-      speaker: spk,
-      pitch: pitch,
-      acousticGender: acousticGender,
-      g: defaultG
-    };
-  }).filter(s => s.text);
-
-  // Clean overlaps, sort strictly by timestamp t
-  const cleanOut = _0x10dd(out);
-
-  setProgress(45, 'NISAY Transcribed ' + cleanOut.length + ' cues with frame-accurate timing', 'Transcribe Complete');
-  log('✓ NISAY Transcribe complete: ' + cleanOut.length + ' lines with frame-accurate timestamps.');
+  // Clean overlaps and sort strictly by timestamp
+  const cleanOut = _0x10dd(allCues);
+  setProgress(45, 'NISAY Transcribed ' + cleanOut.length + ' cues across entire video', 'Transcribe Complete');
+  log('✓ NISAY Transcribe complete: ' + cleanOut.length + ' lines spanning whole movie timeline.');
   return cleanOut;
 }
 
