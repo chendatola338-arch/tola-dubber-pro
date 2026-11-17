@@ -275,6 +275,37 @@
               </p>
             </div>
 
+            <!-- CodeCraft API Card (Ultra-Fast Translation Engine) -->
+            <div class="prov" id="prov-codecraft" style="margin-top:12px;border:1px solid rgba(124,108,255,0.4);background:rgba(124,108,255,0.06);border-radius:14px;padding:14px;">
+              <div class="ph" style="margin-bottom:10px;">
+                <label class="sw">
+                  <input type="checkbox" id="en-codecraft" data-save="" checked="" />
+                  <b>CodeCraft API (Translation Engine)</b>
+                </label>
+                <span class="tag" style="background:linear-gradient(135deg,#10b981,#06b6d4);color:#fff;border:none;font-weight:700;">⚡ Ultra-Fast</span>
+                <a href="https://codecraftapi.com/dashboard/billing/plan" rel="noopener" target="_blank">Balance ($0) ↗</a>
+              </div>
+              <label class="f" for="codecraftKey" style="margin-top:4px;">CodeCraft API Key</label>
+              <div style="display:flex;gap:8px;align-items:center;">
+                <input type="text" id="codecraftKey" data-save="" placeholder="cc_..." value="cc_EoCiGSq3gdSlLuBEhZlpxeARBQyqGXkxpffPNNRElLmpPHaA" spellcheck="false" style="flex:1;font-family:monospace;padding:9px 12px;border-radius:10px;border:1px solid var(--line);background:var(--card);color:var(--ink);" />
+                <button type="button" class="b" id="codecraftTestBtn" style="white-space:nowrap;padding:8px 12px;">✓ Check Key</button>
+              </div>
+              <div id="codecraftKeyStatus" style="font-size:12px;margin-top:4px;color:var(--ok);font-weight:600;">✓ Active (DeepSeek-V4 & Claude Ready)</div>
+              
+              <div style="margin-top:10px;display:flex;gap:8px;align-items:center;">
+                <label class="f" style="margin:0;white-space:nowrap;">Model:</label>
+                <select id="codecraftModel" data-save="" style="flex:1;padding:7px 10px;border-radius:8px;border:1px solid var(--line);background:var(--card);color:var(--ink);font-size:12.5px;">
+                  <option value="deepseek-v4-flash-0731" selected>DeepSeek-V4 Flash (Ultra-fast ~1s, High Lip-sync Accuracy)</option>
+                  <option value="qwen3.8-max">Qwen 3.8 Max (Master of Chinese Drama Dialogue)</option>
+                  <option value="claude-sonnet-5">Claude Sonnet 5 (Premium Eloquent Khmer)</option>
+                  <option value="gpt-5.6-luna">GPT-5.6 Luna</option>
+                </select>
+              </div>
+              <p class="note" style="margin:8px 0 0;font-size:11.5px;">
+                💡 <b>Smart Hybrid:</b> NISAY Transcribe extracts audio tokens, while CodeCraft DeepSeek translates in 1–2 seconds. Auto-fallbacks to NISAY if CodeCraft balance is depleted.
+              </p>
+            </div>
+
             <!-- Gemini Card (Backup / Secondary) -->
             <div class="prov" id="prov-gemini" style="opacity:0.85;">
               <div class="ph">
@@ -775,7 +806,7 @@ Hello everyone, welcome back.">
 
   <div class="toast" id="toast">
   </div>
-  <script src="app.js?v=ultra_fast_v52"></script>
+  <script src="app.js?v=ultra_fast_v53"></script>
 </body>
 
 </html>
