@@ -545,11 +545,21 @@ throw new Error('Gemini is still busy. Last error: ' + lastErr);
 }
 const b64 = buf => new Promise(r => { const f = new FileReader(); f.onload = () => r(f.result.split(',')[1]); f.readAsDataURL(new Blob([buf])) });
 function wav(pcm, sampleRate = 16000) {
-const n = pcm.length, o = new DataView(new ArrayBuffer(44 + n * 2)), w = (p, t) => [...t].forEach((c, i) => o.setUint8(p + i, c.charCodeAt(0)));
-w(0, 'RIFF'); o.setUint32(4, 36 + n * 2, true); w(8, 'WAVEfmt '); o.setUint32(16, 16, true); o.setUint16(20, 1, true); o.setUint16(22, 1, true);
-o.setUint32(24, sampleRate, true); o.setUint32(28, sampleRate * 2, true); o.setUint16(32, 2, true); o.setUint16(34, 16, true); w(36, 'data'); o.setUint32(40, n * 2, true);
-for (let i = 0; i < n; i++) { const x = Math.max(-1, Math.min(1, pcm[i])); o.setInt16(44 + i * 2, x < 0 ? x * 32768 : x * 32767, true) }
-return o.buffer;
+  const n = pcm.length;
+  let peak = 0;
+  for (let i = 0; i < n; i++) {
+    const a = Math.abs(pcm[i]);
+    if (a > peak) peak = a;
+  }
+  const gain = (peak > 0.01 && peak < 0.75) ? Math.min(4.0, 0.92 / peak) : 1.0;
+  const o = new DataView(new ArrayBuffer(44 + n * 2)), w = (p, t) => [...t].forEach((c, i) => o.setUint8(p + i, c.charCodeAt(0)));
+  w(0, 'RIFF'); o.setUint32(4, 36 + n * 2, true); w(8, 'WAVEfmt '); o.setUint32(16, 16, true); o.setUint16(20, 1, true); o.setUint16(22, 1, true);
+  o.setUint32(24, sampleRate, true); o.setUint32(28, sampleRate * 2, true); o.setUint16(32, 2, true); o.setUint16(34, 16, true); w(36, 'data'); o.setUint32(40, n * 2, true);
+  for (let i = 0; i < n; i++) {
+    const x = Math.max(-1, Math.min(1, pcm[i] * gain));
+    o.setInt16(44 + i * 2, x < 0 ? x * 32768 : x * 32767, true);
+  }
+  return o.buffer;
 }
 async function _0x1110(file) {
 const u64 = (d, o) => d.getUint32(o) * 4294967296 + d.getUint32(o + 4);
@@ -661,7 +671,7 @@ const n = _0x1132(segs); blog('Timing matched to the original speech: ' + n + ' 
 }
 async function _0x1165() {
 log('Reading audio from your video…');
-const CHs = 60, CH = CHs * 16000; let ma = null, getPcm, total;
+const CHs = 30, CH = CHs * 16000; let ma = null, getPcm, total;
 const ac = _mac();
 try {
 ma = await _0x1110(curFile); total = Math.ceil(ma.dur / CHs);
@@ -2063,7 +2073,7 @@ function detectPitchF0(pcm, sampleRate = 16000) {
         bestLag = lag;
       }
     }
-    if (bestCorr > 0.40 && bestLag > 0) {
+    if (bestCorr > 0.65 && bestLag > 0) {
       pitches.push(sampleRate / bestLag);
     }
   }
@@ -2290,13 +2300,15 @@ async function listenNisay(resumed) {
 // INTELLIGENT DRAMA GENDER DETECTION ENGINE
 // ==========================================
 
-const FEMALE_VOCATIVES = /(?:姑娘|小姐|夫人|娘子|老婆|妹妹|表妹|师妹|爱妃|丫头|美女|岳母|母亲|娘|娘亲|婆婆|姑姑|大娘|大姐|弟妹|嫂子|嫂嫂|他娘|媳妇|妖女|魔女|仙子|仙女|郡主|公主|皇后|贵妃|侧妃|丫鬟|小妞|妹子|丈母娘|女施主|爱妻|皇妹|ผู้หญิง|អ្នកនាង|អូនសម្លាញ់|ប្រពន្ធសម្លាញ់|ប្រពន្ធខ្ញុំ|ប្អូនស្រី|កញ្ញា|នាងតូច|ម៉ែវា|នាងល្អិត|ស្រីស្អាត|ម៉ែ|ម្ដាយ|អ្នកម្តាយ|យាយ|មីង|អ៊ំស្រី|ព្រះនាង|ម្ចាស់ក្សត្រី|ព្រះមហេសី|អ្នកស្រី|ប្អូនស្រីសម្លាញ់)/;
-const MALE_VOCATIVES = /(?:夫君|相公|少爷|公子|王爷|陛下|皇上|圣上|万岁|哥哥|表哥|师兄|老公|爹|父亲|爹爹|爷爷|叔叔|舅舅|掌门|大哥|二哥|三哥|四哥|五哥|侯爷|殿下|督主|师父|师尊|义父|臭男人|死鬼|他爹|叔父|伯父|岳父|郎君|郎主|将军|大人|兄弟|男施主|皇兄|爱卿|លោកប្ដី|បងសម្លាញ់|លោកម្ចាស់|ព្រះស្វាមី|ព្រះអង្គ|លោកប្រុស|អ្នកប្រុស|លោកតា|ពូ|លោកពូ|ឪវា|លោកឪពុក|ពុក|បងប្រុស|មេបញ្ជាការ|លោកគ្រូ|ប្ដីសម្លាញ់|ព្រះរាជា|ព្រះរាជបុត្រ|ព្រះអង្គម្ចាស់)/;
-const FEMALE_SELF = /(?:臣妾|本宫|妾身|小女|小女子|奴婢|奴家|为妻|为母|哀家|老娘|本姑娘|小妹|妹妹我|姑娘我|娘子我|姑奶奶|ខ្ញុំជាស្រី|ខ្ញុំជាស្ត្រី|ខ្ញុំជាកូនស្រី|ខ្ញុំម្ចាស់ជាស្រី|ខ្ញុំម្ចាស់ជាស្នំ|ខ្ញុំជាម្តាយ|ខ្ញុំជាប្រពន្ធ)/;
-const MALE_SELF = /(?:朕|本王|本少爷|老子|微臣|末将|贫僧|为夫|为父|老夫|在下|俺|本官|卑职|小婿|本座|为师|本帅|兄弟我|老子我|小僧|老道|老朽|为兄|ខ្ញុំជាបុរស|ខ្ញុំជាប្រុស|ខ្ញុំជាកូនប្រុស|ខ្ញុំម្ចាស់ជាមេទ័ព|ខ្ញុំជាប្តី|ខ្ញុំជាឪពុក|ខ្ញុំជាបងប្រុស)/;
+const FEMALE_VOCATIVES = /(?:姑娘|小姐|夫人|娘子|老婆|妹妹|表妹|师妹|爱妃|丫头|美女|岳母|母亲|娘|娘亲|婆婆|姑姑|大娘|大姐|弟妹|嫂子|嫂嫂|他娘|媳妇|妖女|魔女|仙子|仙女|郡主|公主|皇后|贵妃|侧妃|丫鬟|小妞|妹子|丈母娘|女施主|爱妻|皇妹|ผู้หญิง|អ្នកនាង|អូន(?:សម្លាញ់|សំលាញ់|អើយ|ឯង)?|ប្រពន្ធ(?:សម្លាញ់|សំលាញ់|ខ្ញុំ|អើយ)?|ប្អូនស្រី(?:សម្លាញ់)?|កញ្ញា|នាងតូច|ម៉ែវា|នាងល្អិត|ស្រីស្អាត|ម៉ែ|ម្ដាយ|អ្នកម្តាយ|យាយ|មីង|អ៊ំស្រី|ព្រះនាង|ម្ចាស់ក្សត្រី|ព្រះមហេសី|អ្នកស្រី)/;
+const MALE_VOCATIVES = /(?:夫君|相公|少爷|公子|王爷|陛下|皇上|圣上|万岁|哥哥|表哥|师兄|老公|爹|父亲|爹爹|爷爷|叔叔|舅舅|掌门|大哥|二哥|三哥|四哥|五哥|侯爷|殿下|督主|师父|师尊|义父|臭男人|死鬼|他爹|叔父|伯父|岳父|郎君|郎主|将军|大人|兄弟|男施主|皇兄|爱卿|ប្តី|ប្ដី|លោកប្តី|លោកប្ដី|ប្តីសម្លាញ់|ប្ដីសម្លាញ់|ប្តីអើយ|ប្ដីអើយ|បង(?:សម្លាញ់|សំលាញ់|អើយ|ប្រុស|ឯង)?|លោកបង|លោកម្ចាស់|ព្រះស្វាមី|ព្រះអង្គ|លោកប្រុស|អ្នកប្រុស|លោកតា|ពូ|លោកពូ|ឪវា|លោកឪពុក|ពុក|ប៉ា|មេបញ្ជាការ|លោកគ្រូ|ព្រះរាជា|ព្រះរាជបុត្រ|ព្រះអង្គម្ចាស់)/;
+const FEMALE_SELF = /(?:臣妾|本宫|妾身|小女|小女子|奴婢|奴家|为妻|为母|哀家|老娘|本姑娘|小妹|妹妹我|姑娘我|娘子我|姑奶奶|我老公|我丈夫|我夫君|ខ្ញុំជាស្រី|ខ្ញុំជាស្ត្រី|ខ្ញុំជាកូនស្រី|ខ្ញុំម្ចាស់ជាស្រី|ខ្ញុំម្ចាស់ជាស្នំ|ខ្ញុំជាម្តាយ|ខ្ញុំជាម្ដាយ|ខ្ញុំជាប្រពន្ធ|ខ្ញុំជាភរិយា|ប្តីខ្ញុំ|ប្ដីខ្ញុំ|ប្តីរបស់ខ្ញុំ|ប្ដីរបស់ខ្ញុំ)/;
+const MALE_SELF = /(?:朕|本王|本少爷|老子|微臣|末将|贫僧|为夫|为父|老夫|在下|俺|本官|卑职|小婿|本座|为师|本帅|兄弟我|老子我|小僧|老道|老朽|为兄|我老婆|我妻子|我媳妇|ខ្ញុំជាបុរស|ខ្ញុំជាប្រុស|ខ្ញុំជាកូនប្រុស|ខ្ញុំម្ចាស់ជាមេទ័ព|ខ្ញុំជាប្តី|ខ្ញុំជាប្ដី|ខ្ញុំជាឪពុក|ខ្ញុំជាបងប្រុស|ប្រពន្ធខ្ញុំ|ប្រពន្ធរបស់ខ្ញុំ|ភរិយាខ្ញុំ)/;
 
 function inferDramaGender(origText, kmText) {
-  const all = (origText || '') + ' ' + (kmText || '');
+  const orig = String(origText || '');
+  const km = String(kmText || '');
+  const all = orig + ' ' + km;
   
   // 1. Definite Female Self-Identity (Speaker is definitely female)
   if (FEMALE_SELF.test(all)) return 'f';
@@ -2310,6 +2322,12 @@ function inferDramaGender(origText, kmText) {
   // 4. Vocatives addressing a Male -> Speaker is FEMALE
   if (MALE_VOCATIVES.test(all)) return 'f';
 
+  // 5. Emotional cries over wife / husband in drama
+  if (/(?:我怎么活|怎么活|你别死|你醒醒|别离开我|កុំទៅចោលខ្ញុំ|កុំស្លាប់អី|ភ្ញាក់ឡើង|តើឲ្យខ្ញុំរស់|រស់នៅយ៉ាងម៉េច)/.test(all)) {
+    if (/(?:老婆|妻子|她|នាង|ប្រពន្ធ|អូន)/.test(all)) return 'm';
+    if (/(?:老公|夫君|他|គាត់|ប្តី|ប្ដី|បង)/.test(all)) return 'f';
+  }
+
   return null;
 }
 
@@ -2318,8 +2336,8 @@ function extractAiGender(text) {
   let clean = String(text).trim();
   let g = '';
   
-  const femaleTagRegex = /(?:^|\s*)(?:\[(?:ស្រី|នារី|ស្រីមុំ|Female|Woman|Girl|F|តួស្រី)\]|\((?:ស្រី|នារី|ស្រីមុំ|Female|Woman|Girl|F|តួស្រី)\)|【(?:ស្រី|នារី|ស្រីមុំ|Female|Woman|Girl|F|តួស្រី)】|(?:តួស្រី|ស្រី)\s*[:៖\-])/i;
-  const maleTagRegex = /(?:^|\s*)(?:\[(?:ប្រុស|បុរស|ពិសិដ្ឋ|Male|Man|Boy|M|តួប្រុស)\]|\((?:ប្រុស|បុរស|ពិសិដ្ឋ|Male|Man|Boy|M|តួប្រុស)\)|【(?:ប្រុស|បុរស|ពិសិដ្ឋ|Male|Man|Boy|M|តួប្រុស)】|(?:តួប្រុស|ប្រុស)\s*[:៖\-])/i;
+  const femaleTagRegex = /(?:^|\s*)(?:\[(?:ស្រី|នារី|ស្ត្រី|ស្រីមុំ|Female|Woman|Girl|F|តួស្រី)\]|\((?:ស្រី|នារី|ស្ត្រី|ស្រីមុំ|Female|Woman|Girl|F|តួស្រី)\)|【(?:ស្រី|នារី|ស្ត្រី|ស្រីមុំ|Female|Woman|Girl|F|តួស្រី)】|(?:តួស្រី|ស្រី|ស្ត្រី)\s*[:៖\-])/i;
+  const maleTagRegex = /(?:^|\s*)(?:\[(?:ប្រុស|បុរស|ពិសិដ្ឋ|Male|Man|Boy|M|តួប្រុស)\]|\((?:ប្រុស|បុរស|ពិសិដ្ឋ|Male|Man|Boy|M|តួប្រុស)\)|【(?:ប្រុស|បុរស|ពិសិដ្ឋ|Male|Man|Boy|M|តួប្រុស)】|(?:តួប្រុស|ប្រុស|បុរស)\s*[:៖\-])/i;
 
   const hasF = femaleTagRegex.test(clean);
   const hasM = maleTagRegex.test(clean);
@@ -2327,8 +2345,8 @@ function extractAiGender(text) {
   if (hasF && !hasM) g = 'f';
   else if (hasM && !hasF) g = 'm';
 
-  // Strip all gender prefix tags so Edge TTS never speaks '[ប្រុស]' or '[ស្រី]'
-  clean = clean.replace(/(?:^|\s*)(?:\[(?:ស្រី|នារី|ស្រីមុំ|Female|Woman|Girl|F|តួស្រី|ប្រុស|បុរស|ពិសិដ្ឋ|Male|Man|Boy|M|តួប្រុស)\]|\((?:ស្រី|នារី|ស្រីមុំ|Female|Woman|Girl|F|តួស្រី|ប្រុស|បុរស|ពិសិដ្ឋ|Male|Man|Boy|M|តួប្រុស)\)|【(?:ស្រី|នារី|ស្រីមុំ|Female|Woman|Girl|F|តួស្រី|ប្រុស|បុរស|ពិសិដ្ឋ|Male|Man|Boy|M|តួប្រុស)】|(?:តួស្រី|តួប្រុស|ស្រី|ប្រុស)\s*[:៖\-])\s*/gi, '').trim();
+  // Strip all gender prefix tags so Edge TTS never speaks '[ប្រុស]' or '[ស្រី]' or '[ស្ត្រី]'
+  clean = clean.replace(/(?:^|\s*)(?:\[(?:ស្រី|នារី|ស្ត្រី|ស្រីមុំ|Female|Woman|Girl|F|តួស្រី|ប្រុស|បុរស|ពិសិដ្ឋ|Male|Man|Boy|M|តួប្រុស)\]|\((?:ស្រី|នារី|ស្ត្រី|ស្រីមុំ|Female|Woman|Girl|F|តួស្រី|ប្រុស|បុរស|ពិសិដ្ឋ|Male|Man|Boy|M|តួប្រុស)\)|【(?:ស្រី|នារី|ស្ត្រី|ស្រីមុំ|Female|Woman|Girl|F|តួស្រី|ប្រុស|បុរស|ពិសិដ្ឋ|Male|Man|Boy|M|តួប្រុស)】|(?:តួស្រី|តួប្រុស|ស្រី|ប្រុស|ស្ត្រី|បុរស)\s*[:៖\-])\s*/gi, '').trim();
 
   return { gender: g, cleanText: clean };
 }
@@ -2349,12 +2367,7 @@ function resolveSegmentGenders(segments) {
 
     const semG = inferDramaGender(orig, s.km);
 
-    let acousticG = s.acousticGender || '';
     const pitch = s.pitch || 0;
-    if (!acousticG && pitch > 0) {
-      if (pitch >= 165) acousticG = 'f';
-      else if (pitch >= 75 && pitch <= 145) acousticG = 'm';
-    }
 
     if (aiG === 'f' || aiG === 'm') {
       s.g = aiG;
@@ -2364,15 +2377,12 @@ function resolveSegmentGenders(segments) {
       s.g = semG;
       s._aiGender = semG;
       s._gConf = 'semantic';
-    } else if (pitch >= 170) {
+    } else if (pitch >= 195) {
       s.g = 'f';
       s._gConf = 'pitch_strong';
-    } else if (pitch >= 75 && pitch <= 145) {
+    } else if (pitch >= 85 && pitch <= 135) {
       s.g = 'm';
       s._gConf = 'pitch_strong';
-    } else if (acousticG) {
-      s.g = acousticG;
-      s._gConf = 'pitch_mid';
     } else {
       s.g = '';
       s._gConf = 'none';
@@ -2380,7 +2390,7 @@ function resolveSegmentGenders(segments) {
   });
 
   // Pass 2: Conversational Dialogue Flow Smoothing
-  // If the same speaker continues across short pauses (< 1.5s), maintain the same speaker!
+  // If the same speaker continues across short pauses (< 2.2s), maintain the same speaker!
   for (let i = 0; i < segments.length; i++) {
     const cur = segments[i];
     const prev = segments[i - 1];
@@ -2388,7 +2398,7 @@ function resolveSegmentGenders(segments) {
     if (!cur.g) {
       if (prev && prev.g) {
         const gap = cur.t - (prev.e || prev.t);
-        if (gap <= 1.5) {
+        if (gap <= 2.2) {
           cur.g = prev.g;
           cur._gConf = 'continuation';
         } else {
@@ -2409,7 +2419,7 @@ function resolveSegmentGenders(segments) {
 
     if (prev.g === next.g && cur.g !== prev.g && cur._gConf !== 'ai_explicit' && cur._gConf !== 'semantic') {
       const dur = (cur.e || cur.t) - cur.t;
-      if (dur < 1.3) {
+      if (dur < 1.5) {
         cur.g = prev.g;
       }
     }
@@ -2444,16 +2454,15 @@ async function translateNisay() {
   const CONCURRENCY = 4; // 4 parallel streams for maximum speed
   let done = 0;
 
-  const dramaDubContext = 'CHINESE DRAMA DUBBING CHARACTER CONTEXT (' + category + '): You are dubbing dialogue for a Chinese drama into natural spoken Khmer. ' +
-    'MANDATORY GENDER DETECTION: For EVERY line, you MUST prefix the translation with [ប្រុស] if spoken by a male character, or [ស្រី] if spoken by a female character. ' +
-    'CRITICAL RULES: ' +
-    '1. Identify the ACTOR/SPEAKER WHO IS TALKING (not who is being addressed). ' +
-    '2. When an actor addresses a woman (姑娘/小姐/夫人/娘子/妹妹/爱妃/丫头/美女/អ្នកនាង/កញ្ញា/អូន) -> SPEAKER IS MALE -> prefix [ប្រុស]. ' +
-    '3. When an actress addresses a man (少爷/王爷/公子/陛下/皇上/夫君/相公/哥/លោកម្ចាស់/ព្រះអង្គ/លោកប្តី/បង) -> SPEAKER IS FEMALE -> prefix [ស្រី]. ' +
-    '4. Self-pronouns: 朕/本王/本少爷/老子/微臣/末将/为夫/老夫 = [ប្រុស]; 臣妾/本宫/小女/妾身/奴婢/奴家/为妻/哀家 = [ស្រី]. ' +
-    '5. CONTINUITY: If a character speaks 2-3 consecutive lines, KEEP THE SAME GENDER TAG! Do NOT alternate mid-sentence. ' +
-    '6. STRICT LIP-SYNC: Natural, punchy spoken Khmer. Every line MUST begin with [ប្រុស] or [ស្រី]. ' +
-    'Example: [ប្រុស] ឈប់ភ្លាម! or [ស្រី] លោកម្ចាស់ ខ្ញុំ...';
+  const dramaDubContext = 'CHINESE DRAMA DUBBING: You are translating drama dialogue into natural spoken Khmer for video dubbing. ' +
+    'MANDATORY GENDER DETECTION: For EVERY line, you MUST determine whether the speaker is Male or Female and begin the Khmer translation with [ប្រុស] if the speaker is Male, or [ស្រី] if the speaker is Female. ' +
+    'RULES: ' +
+    '1. Identify WHO IS SPEAKING: When someone calls out to a wife/woman (老婆, 姑娘, 小姐, 夫人, 妹妹, អូន, ប្រពន្ធ) -> The speaker is MALE -> prefix [ប្រុស]! ' +
+    '2. When someone calls out to a husband/man (老公, 夫君, 少爷, 公子, 哥哥, ប្តី, បង, លោកម្ចាស់) -> The speaker is FEMALE -> prefix [ស្រី]! ' +
+    '3. Emotional cries like "我怎么活啊" (How can I live alone?) when crying over a sick wife = [ប្រុស]! ' +
+    '4. KEEP CONTINUITY: If the same character speaks 2-3 consecutive lines, KEEP THE SAME GENDER TAG! Do NOT alternate mid-sentence. ' +
+    '5. STRICT LIP-SYNC: Natural spoken Khmer. Every line MUST begin with [ប្រុស] or [ស្រី]. ' +
+    'Example: [ប្រុស] ឈប់ភ្លាម! or [ស្រី] លោកប្តី ខ្ញុំ...';
 
   async function processBatch(ids) {
     const batchTexts = ids.map(i => segs[i].text);
