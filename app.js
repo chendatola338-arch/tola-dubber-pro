@@ -2100,6 +2100,21 @@ async function listenNisay(resumed) {
     blog('⚠ Audio extraction fallback: using original video file (' + (err.message || err) + ')', 'w');
   }
 
+  const srcLangEl = $('nisaySrcLang');
+  const srcLang = srcLangEl ? srcLangEl.value : 'zh';
+  let transcribePrompt = '以下是中文影视剧原声对白，忽略背景音乐、哭声及杂音，准确听写普通话对白。';
+  if (srcLang === 'en') {
+    transcribePrompt = 'Transcribe drama dialogue verbatim, ignoring background music, crying and noise.';
+  } else if (srcLang === 'auto') {
+    transcribePrompt = 'Transcribe spoken dialogue verbatim with millisecond timestamps, ignoring background music and noise.';
+  } else if (srcLang === 'ko') {
+    transcribePrompt = '드라마 대사를 정확히 전사하고 배경 음악과 울음소리는 무시하세요.';
+  } else if (srcLang === 'th') {
+    transcribePrompt = 'ถอดเสียงบทสนทนาละครอย่างถูกต้อง โดยละเว้นเสียงดนตรีประกอบและเสียงร้องไห้';
+  } else if (srcLang === 'ja') {
+    transcribePrompt = 'ドラマの対話を正確に文字起こしし、BGMや泣き声は無視してください。';
+  }
+
   const endpoints = [
     { url: 'https://autumn-smoke-5a70.chendatola338.workers.dev/nisay/v1/audio/transcriptions?key=' + encodeURIComponent(nisayKey), useAuthHeader: false },
     { url: 'https://api.nisay.store/v1/audio/transcriptions', useAuthHeader: true }
@@ -2114,9 +2129,13 @@ async function listenNisay(resumed) {
         const form = new FormData();
         form.append('file', chunkFile, chunkFile.name || 'audio.wav');
         form.append('model', 'nisay-transcribe');
-        form.append('language', 'auto');
+        if (srcLang && srcLang !== 'auto') {
+          form.append('language', srcLang);
+        } else {
+          form.append('language', 'auto');
+        }
         form.append('response_format', 'verbose_json');
-        form.append('prompt', 'Transcribe verbatim with millisecond timestamps and neutral speaker IDs.');
+        form.append('prompt', transcribePrompt);
 
         const reqHeaders = {};
         if (ep.useAuthHeader) {
@@ -2408,6 +2427,8 @@ async function translateNisay() {
 
   const catEl = $('nisayCategory');
   const category = catEl ? catEl.value : 'chinese_general';
+  const srcLangEl = $('nisaySrcLang');
+  const srcLang = srcLangEl ? srcLangEl.value : 'auto';
 
   const need = segs.map((s, i) => i).filter(i => !segs[i].km);
   const total = need.length;
@@ -2454,7 +2475,7 @@ async function translateNisay() {
           headers: reqHeaders,
           body: JSON.stringify({
             text: batchTexts,
-            source_lang: 'auto',
+            source_lang: (srcLang && srcLang !== 'auto') ? srcLang : 'auto',
             target_lang: 'km',
             model: 'gpt-5.6-luna',
             category: category,
