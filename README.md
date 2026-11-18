@@ -30,7 +30,7 @@
 1. បើកឯកសារ `index.html` លើ Browser (Chrome, Edge ឬ Brave)
 2. ចូលទៅកាន់ Tab **Providers**
 3. លោកអ្នកនឹងឃើញ **NISAY AI Gateway** ត្រូវបានបើកដំណើរការជាចម្បង (Primary Engine) ដោយភ្ជាប់មកជាមួយ API Key ស្រាប់៖
-   - `nisay-int-shop-a3eed6bbf1564ee2b2cdaff179f9178a`
+   - `nisay-int-shop-2b8a3c08ced449fe98aca2c47cfdc6cc`
    - ចុចប៊ូតុង **✓ Check Key** ដើម្បីផ្ទៀងផ្ទាត់ស្ថានភាព Key ភ្លាមៗ
 4. ជ្រើសរើសប្រភេទរឿង (Drama Category) ដូចជា **General Chinese Drama**
 5. អូសទម្លាក់ (Drop) វីដេអូចូល រួចចុច **✨ Dub to Khmer**!
