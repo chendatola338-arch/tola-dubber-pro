@@ -1998,18 +1998,6 @@ function isNisayActive() {
   return en ? en.checked : true;
 }
 
-const DEFAULT_CODECRAFT_KEY = 'cc_EoCiGSq3gdSlLuBEhZlpxeARBQyqGXkxpffPNNRElLmpPHaA';
-function getCodeCraftKey() {
-  const el = $('codecraftKey');
-  const k = el ? el.value.trim() : '';
-  return k || DEFAULT_CODECRAFT_KEY;
-}
-
-function isCodeCraftActive() {
-  const en = $('en-codecraft');
-  return en ? en.checked && !!getCodeCraftKey() : !!getCodeCraftKey();
-}
-
 function setProgress(pct, label, stageText) {
   pct = Math.max(0, Math.min(100, Math.round(pct)));
   const bar = $('bar');
@@ -2173,11 +2161,11 @@ async function listenNisay(resumed) {
   const allCues = [];
   if (pcmList.length > 0 && a) {
     const totalChunks = pcmList.length;
-    log('NISAY Transcribing entire video (' + totalChunks + ' parts of ' + a.CHs + 's) in 3 parallel streams…');
+    log('NISAY Transcribing entire video (' + totalChunks + ' parts of ' + a.CHs + 's) in 4 parallel streams…');
 
     const chunkResults = new Array(totalChunks);
     const chunkQueue = Array.from({ length: totalChunks }, (_, k) => k);
-    const CHUNK_CONC = Math.min(3, totalChunks);
+    const CHUNK_CONC = Math.min(4, totalChunks);
     let chunksDone = 0;
 
     await Promise.all(Array.from({ length: CHUNK_CONC }, async (_, workerIdx) => {
@@ -2333,8 +2321,12 @@ function resolveSegmentGenders(segments) {
   segments.forEach((s) => {
     const orig = s.text || '';
     const km = s.km || '';
-    const { gender: aiG, cleanText } = extractAiGender(km);
+    const { gender: parsedG, cleanText } = extractAiGender(km);
     if (cleanText) s.km = cleanText;
+
+    // Highest priority: Keep explicit AI gender tag returned by translation
+    const existingG = (s.g === 'f' || s.g === 'm') ? s.g : '';
+    const aiG = parsedG || s._aiGender || existingG;
 
     const semG = inferDramaGender(orig, s.km);
 
@@ -2347,9 +2339,11 @@ function resolveSegmentGenders(segments) {
 
     if (aiG === 'f' || aiG === 'm') {
       s.g = aiG;
+      s._aiGender = aiG;
       s._gConf = 'ai_explicit';
     } else if (semG === 'f' || semG === 'm') {
       s.g = semG;
+      s._aiGender = semG;
       s._gConf = 'semantic';
     } else if (pitch >= 170) {
       s.g = 'f';
@@ -2367,7 +2361,7 @@ function resolveSegmentGenders(segments) {
   });
 
   // Pass 2: Conversational Dialogue Flow Smoothing
-  // If the same speaker continues across short pauses (< 1.4s), maintain the speaker!
+  // If the same speaker continues across short pauses (< 1.5s), maintain the same speaker!
   for (let i = 0; i < segments.length; i++) {
     const cur = segments[i];
     const prev = segments[i - 1];
@@ -2375,7 +2369,7 @@ function resolveSegmentGenders(segments) {
     if (!cur.g) {
       if (prev && prev.g) {
         const gap = cur.t - (prev.e || prev.t);
-        if (gap <= 1.4) {
+        if (gap <= 1.5) {
           cur.g = prev.g;
           cur._gConf = 'continuation';
         } else {
@@ -2420,24 +2414,24 @@ async function translateNisay() {
   if (!total) return;
 
   log('NISAY AI is analyzing characters & translating ' + total + ' lines...');
-  const batchSize = 10; // Optimal 10-line batches for instant 1.5s response & zero timeouts
+  const batchSize = 12; // High-throughput 12-line batches for instant response
   const batches = [];
   for (let p = 0; p < total; p += batchSize) {
     batches.push(need.slice(p, p + batchSize));
   }
 
-  const CONCURRENCY = 3; // 3 parallel streams for lightning-fast translation
+  const CONCURRENCY = 4; // 4 parallel streams for maximum speed
   let done = 0;
 
-  const dramaDubContext = 'DRAMA DUBBING CHARACTER CONTEXT (' + category + '): This is a continuous dialogue conversation between characters in a drama. ' +
+  const dramaDubContext = 'CHINESE DRAMA DUBBING CHARACTER CONTEXT (' + category + '): You are dubbing dialogue for a Chinese drama into natural spoken Khmer. ' +
     'MANDATORY GENDER DETECTION: For EVERY line, you MUST prefix the translation with [ប្រុស] if spoken by a male character, or [ស្រី] if spoken by a female character. ' +
     'CRITICAL RULES: ' +
-    '1. Detect the ACTOR/SPEAKER WHO IS TALKING (not the person being spoken to!). ' +
-    '2. When an actor addresses a woman (e.g. 姑娘/小姐/夫人/娘子/妹妹/她/អ្នកនាង/កញ្ញា), the SPEAKER IS MALE -> prefix [ប្រុស]. ' +
-    '3. When an actress addresses a man (e.g. 少爷/王爷/公子/陛下/皇上/夫君/相公/哥/他/លោកម្ចាស់/ព្រះអង្គ), the SPEAKER IS FEMALE -> prefix [ស្រី]. ' +
-    '4. Self-pronouns: 本少爷/朕/本王/微臣/老子/末将/为夫 = [ប្រុស]; 臣妾/本宫/小女/妾身/奴婢/奴家/为妻 = [ស្រី]. ' +
-    '5. In two-person dialogues, characters take turns speaking back and forth. Output MUST start with [ប្រុស] or [ស្រី] on EVERY line. ' +
-    '6. STRICT LIP-SYNC: Keep translations punchy, concise and short so the voice matches the character mouth movement duration. ' +
+    '1. Identify the ACTOR/SPEAKER WHO IS TALKING (not who is being addressed). ' +
+    '2. When an actor addresses a woman (姑娘/小姐/夫人/娘子/妹妹/爱妃/丫头/美女/អ្នកនាង/កញ្ញា/អូន) -> SPEAKER IS MALE -> prefix [ប្រុស]. ' +
+    '3. When an actress addresses a man (少爷/王爷/公子/陛下/皇上/夫君/相公/哥/លោកម្ចាស់/ព្រះអង្គ/លោកប្តី/បង) -> SPEAKER IS FEMALE -> prefix [ស្រី]. ' +
+    '4. Self-pronouns: 朕/本王/本少爷/老子/微臣/末将/为夫/老夫 = [ប្រុស]; 臣妾/本宫/小女/妾身/奴婢/奴家/为妻/哀家 = [ស្រី]. ' +
+    '5. CONTINUITY: If a character speaks 2-3 consecutive lines, KEEP THE SAME GENDER TAG! Do NOT alternate mid-sentence. ' +
+    '6. STRICT LIP-SYNC: Natural, punchy spoken Khmer. Every line MUST begin with [ប្រុស] or [ស្រី]. ' +
     'Example: [ប្រុស] ឈប់ភ្លាម! or [ស្រី] លោកម្ចាស់ ខ្ញុំ...';
 
   async function processBatch(ids) {
@@ -2494,8 +2488,13 @@ async function translateNisay() {
             const orig = segs[segIdx].text || '';
             const semanticGender = inferDramaGender(orig, cleanText || rawText);
 
-            if (aiG) segs[segIdx].g = aiG;
-            else if (semanticGender) segs[segIdx].g = semanticGender;
+            if (aiG) {
+              segs[segIdx].g = aiG;
+              segs[segIdx]._aiGender = aiG;
+            } else if (semanticGender) {
+              segs[segIdx].g = semanticGender;
+              segs[segIdx]._aiGender = semanticGender;
+            }
 
             segs[segIdx].km = cleanText || rawText;
             segs[segIdx].speaker = segs[segIdx].g === 'f' ? 'S1 (♀ តួស្រី)' : 'S0 (♂ តួប្រុស)';
@@ -2566,118 +2565,6 @@ async function translateNisay() {
   segs = segs.filter(s => s.km && s.km.trim());
 }
 
-async function translateCodeCraft() {
-  const ccKey = getCodeCraftKey();
-  if (!ccKey) throw new Error('No CodeCraft API Key provided');
-
-  const modelEl = $('codecraftModel');
-  const model = modelEl ? modelEl.value : 'deepseek-v4-flash-0731';
-
-  const need = segs.map((s, i) => i).filter(i => !segs[i].km);
-  const total = need.length;
-  if (!total) return;
-
-  log('CodeCraft AI (' + model + ') is analyzing characters & translating ' + total + ' lines…');
-
-  const batchSize = 12;
-  const batches = [];
-  for (let p = 0; p < total; p += batchSize) {
-    batches.push(need.slice(p, p + batchSize));
-  }
-
-  const CONCURRENCY = 2;
-  let done = 0;
-
-  async function processCcBatch(ids) {
-    const linesToTranslate = ids.map((id, idx) => (idx + 1) + '. ' + segs[id].text).join('\n');
-    const systemPrompt = 'You are a professional Chinese to Khmer drama dubbing translator.\n' +
-      'Translate every line into natural, conversational, punchy Khmer for video dubbing.\n' +
-      'CRITICAL GENDER RULE: Every translated line MUST start with [ប្រុស] if spoken by a male character, or [ស្រី] if spoken by a female character.\n' +
-      'Rules:\n' +
-      '- Actor addressing female (姑娘/小姐/夫人/娘子/妹妹/អ្នកនាង) -> Speaker is MALE -> prefix [ប្រុស]\n' +
-      '- Actress addressing male (公子/少爷/王爷/陛下/夫君/លោកម្ចាស់) -> Speaker is FEMALE -> prefix [ស្រី]\n' +
-      '- Self-pronouns: 本少爷/朕/微臣/老子 = [ប្រុស]; 臣妾/本宫/奴婢 = [ស្រី]\n' +
-      'Format output numbered 1 to ' + ids.length + ' matching input lines:\n' +
-      '1. [ប្រុស] ...\n' +
-      '2. [ស្រី] ...';
-
-    const resp = await fetch('https://codecraftapi.com/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Authorization': 'Bearer ' + ccKey,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({
-        model: model,
-        messages: [
-          { role: 'system', content: systemPrompt },
-          { role: 'user', content: linesToTranslate }
-        ],
-        temperature: 0.3
-      })
-    });
-
-    if (resp.status === 402) {
-      const errData = await resp.json().catch(() => ({}));
-      const msg = (errData && errData.error && errData.error.message) || 'Insufficient plan tokens or balance ($0.00)';
-      throw new Error('CodeCraft 402: ' + msg);
-    }
-    if (!resp.ok) {
-      const txt = await resp.text().catch(() => '');
-      throw new Error('CodeCraft HTTP ' + resp.status + ': ' + txt.slice(0, 100));
-    }
-
-    const data = await resp.json();
-    const reply = (data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content) || '';
-    const rawLines = reply.split('\n').map(l => l.trim()).filter(Boolean);
-
-    ids.forEach((segIdx, idx) => {
-      let matched = rawLines.find(l => new RegExp('^' + (idx + 1) + '[\\.\\:\\-\\s]').test(l));
-      if (!matched && rawLines[idx]) matched = rawLines[idx];
-      let rawText = matched ? matched.replace(/^(\d+|[០-៩]+)\s*[\.\:\-\)\]\s]\s*/, '').trim() : (segs[segIdx].text || '');
-
-      const { gender: aiG, cleanText } = extractAiGender(rawText);
-      const orig = segs[segIdx].text || '';
-      const semanticGender = inferDramaGender(orig, cleanText || rawText);
-
-      if (aiG) segs[segIdx].g = aiG;
-      else if (semanticGender) segs[segIdx].g = semanticGender;
-
-      segs[segIdx].km = cleanText || rawText || segs[segIdx].text || '...';
-      segs[segIdx].speaker = segs[segIdx].g === 'f' ? 'S1 (♀ តួស្រី)' : 'S0 (♂ តួប្រុស)';
-    });
-
-    done += ids.length;
-    const pct = 45 + Math.round((done / total) * 30);
-    setProgress(pct, 'CodeCraft Translating (' + done + '/' + total + ')...', 'CodeCraft Translating');
-    log('CodeCraft translated… ' + done + '/' + total);
-    await _0x140d({ status: 'running', step: 2, segs: _0x13fc(segs) });
-  }
-
-  const queue = batches.slice();
-  const workers = Array.from({ length: Math.min(CONCURRENCY, queue.length) }, async () => {
-    while (queue.length) {
-      const b = queue.shift();
-      await processCcBatch(b);
-    }
-  });
-  await Promise.all(workers);
-
-  // Safety fallback: Ensure all lines have text
-  segs.forEach(s => {
-    if (!s.km || !s.km.trim()) s.km = s.text || '...';
-  });
-
-  // Intelligent drama role resolution and dialogue flow smoothing
-  resolveSegmentGenders(segs);
-
-  let fCount = segs.filter(s => s.g === 'f').length;
-  let mCount = segs.filter(s => s.g === 'm').length;
-  setProgress(75, 'CodeCraft Translated ' + total + ' lines (' + mCount + ' ♂ Piseth, ' + fCount + ' ♀ Sreymom)', 'Translate Complete');
-  log('✓ CodeCraft Character detection: ' + mCount + ' Piseth (♂ Male) cues, ' + fCount + ' Sreymom (♀ Female) cues.');
-  blog('✓ CodeCraft Character voice detection: ' + mCount + ' Piseth (♂ Male) cues, ' + fCount + ' Sreymom (♀ Female) cues.', 'k');
-}
-
 async function _0x1451(resumed) {
 _0x1220();
 const isResume = !!(resumed && resumed.status === 'running');
@@ -2720,14 +2607,7 @@ if (startStep <= 2) {
 step(2, 'on');
 if (isResume && startStep === 2) blog('↻ Resuming Step 2 (Khmer translation) from saved progress…', 'k');
 if (segs.some(x => !x.km)) {
-  if (isCodeCraftActive()) {
-    try {
-      await translateCodeCraft();
-    } catch (ccErr) {
-      blog('⚠ CodeCraft API: ' + (ccErr.message || ccErr) + ' (Auto-switching to NISAY Luna translation seamlessly…)', 'w');
-      await translateNisay();
-    }
-  } else if (isNisayActive()) {
+  if (isNisayActive()) {
     await translateNisay();
   } else {
     await translate();
@@ -3180,35 +3060,6 @@ if ($('nisayTestBtn')) {
     }
   };
 }
-
-if ($('codecraftTestBtn')) {
-  $('codecraftTestBtn').onclick = async () => {
-    const k = getCodeCraftKey();
-    const st = $('codecraftKeyStatus');
-    if (!k) {
-      if (st) { st.textContent = '⚠ Please enter a CodeCraft API Key'; st.style.color = '#f87171'; }
-      return;
-    }
-    if (st) { st.textContent = 'Checking key with CodeCraft API...'; st.style.color = 'var(--mute)'; }
-    try {
-      const resp = await fetch('https://codecraftapi.com/v1/models', {
-        headers: { 'Authorization': 'Bearer ' + k }
-      });
-      if (resp.ok) {
-        if (st) { st.textContent = '✓ CodeCraft Key ACTIVE & Verified (33 models available)'; st.style.color = 'var(--ok)'; }
-        toast('✓ CodeCraft API Key verified successfully');
-      } else if (resp.status === 401) {
-        if (st) { st.textContent = '✕ 401 Unauthorized: Key is invalid'; st.style.color = '#f87171'; }
-      } else {
-        if (st) { st.textContent = '⚠ HTTP ' + resp.status; st.style.color = '#f59e0b'; }
-      }
-    } catch (err) {
-      if (st) { st.textContent = '✕ Connection error: ' + (err.message || err); st.style.color = '#f87171'; }
-    }
-  };
-}
-
-
 
 async function clearAllSavedSession() {
   toast('🔄 កំពុង Reset & Refresh វេបសាយ...');
